@@ -35,14 +35,30 @@ import {
 } from 'lucide-react';
 import { useStore, matchesFuzzyQuery, SearchScope, ROLE_DEFAULT_PINS } from '@/lib/store-context';
 import { NavigationTab, Voter } from '@/lib/types';
+import dynamic from 'next/dynamic';
 import VoterListView from './VoterListView';
-import FamilyView from './FamilyView';
-import VillagesStationsView from './VillagesStationsView';
-import MapsView from './MapsView';
-import ImportDataView from './ImportDataView';
-import ReportsView from './ReportsView';
-import UsersView from './UsersView';
-import SettingsView from './SettingsView';
+
+const FamilyView = dynamic(() => import('./FamilyView'), {
+  loading: () => <div className="p-8 text-center text-sm text-slate-500">Loading Family View...</div>,
+});
+const VillagesStationsView = dynamic(() => import('./VillagesStationsView'), {
+  loading: () => <div className="p-8 text-center text-sm text-slate-500">Loading Villages & Stations...</div>,
+});
+const MapsView = dynamic(() => import('./MapsView'), {
+  loading: () => <div className="p-8 text-center text-sm text-slate-500">Loading Maps...</div>,
+});
+const ImportDataView = dynamic(() => import('./ImportDataView'), {
+  loading: () => <div className="p-8 text-center text-sm text-slate-500">Loading Import View...</div>,
+});
+const ReportsView = dynamic(() => import('./ReportsView'), {
+  loading: () => <div className="p-8 text-center text-sm text-slate-500">Loading Analytics & Reports...</div>,
+});
+const UsersView = dynamic(() => import('./UsersView'), {
+  loading: () => <div className="p-8 text-center text-sm text-slate-500">Loading Users & RBAC...</div>,
+});
+const SettingsView = dynamic(() => import('./SettingsView'), {
+  loading: () => <div className="p-8 text-center text-sm text-slate-500">Loading Settings...</div>,
+});
 
 const NAV_ITEMS: { id: NavigationTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'voter-list', label: 'Voter List', icon: Users },
