@@ -1,0 +1,6 @@
+{
+  "name": "AC-31 Thoubal Voter List Management System",
+  "description": "Constituency voter list management, family verification, polling station mapping, and field workflow platform for AC-31 Thoubal.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

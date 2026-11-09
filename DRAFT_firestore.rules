@@ -1,0 +1,443 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 1: Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global Hardened Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    function incoming() {
+      return request.resource.data;
+    }
+    function existing() {
+      return resource.data;
+    }
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'sanasamhembasingh@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Validation Blueprints
+    function isValidVoter(data) {
+      return data.keys().hasAll([
+        'epicNo', 'name', 'age', 'gender', 'familyId', 'partNo', 'serialNo',
+        'villageId', 'villagePartId', 'pollingStationId', 'status', 'isDeleted',
+        'createdBy', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'epicNo', 'name', 'nameLocal', 'fatherName', 'motherName', 'spouseName',
+        'age', 'gender', 'phone', 'familyId', 'partNo', 'serialNo',
+        'villageId', 'villagePartId', 'pollingStationId', 'addressId',
+        'status', 'category', 'colorState', 'issueType', 'issueResolutionNote', 'tags', 'assignedWorkerId',
+        'isDeleted', 'deleteReason', 'createdBy', 'createdAt', 'updatedAt'
+      ]) &&
+      data.epicNo is string && data.epicNo.size() == 10 && data.epicNo.matches('^[A-Z]{3}[0-9]{7}$') &&
+      data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+      (!('nameLocal' in data) || (data.nameLocal is string && data.nameLocal.size() <= 120)) &&
+      (!('fatherName' in data) || (data.fatherName is string && data.fatherName.size() <= 120)) &&
+      (!('motherName' in data) || (data.motherName is string && data.motherName.size() <= 120)) &&
+      (!('spouseName' in data) || (data.spouseName is string && data.spouseName.size() <= 120)) &&
+      data.age is int && data.age >= 18 && data.age <= 130 &&
+      data.gender is string && data.gender in ['M', 'F', 'O'] &&
+      (!('phone' in data) || (data.phone is string && data.phone.size() <= 20)) &&
+      data.familyId is string && data.familyId.size() <= 64 && data.familyId.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.partNo is int && data.partNo >= 1 && data.partNo <= 200 &&
+      data.serialNo is int && data.serialNo >= 1 && data.serialNo <= 5000 &&
+      data.villageId is string && data.villageId.size() <= 64 && data.villageId.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.villagePartId is string && data.villagePartId.size() <= 64 && data.villagePartId.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.pollingStationId is string && data.pollingStationId.size() <= 64 && data.pollingStationId.matches('^[a-zA-Z0-9_\\-]+$') &&
+      (!('addressId' in data) || (data.addressId is string && data.addressId.size() <= 200)) &&
+      data.status is string && data.status in ['Verified', 'Pending', 'Issues', 'New', 'Removed'] &&
+      (!('category' in data) || (data.category is string && data.category in ['Voter', 'Opponent', 'Pending', 'Worker'])) &&
+      (!('colorState' in data) || (data.colorState is string && data.colorState in ['Our Voter', 'Opponent Voter', 'Pending Voter', 'Worker Voter'])) &&
+      (!('issueType' in data) || (data.issueType is string && data.issueType.size() <= 64)) &&
+      (!('issueResolutionNote' in data) || (data.issueResolutionNote is string && data.issueResolutionNote.size() <= 500)) &&
+      (!('tags' in data) || (data.tags is list && data.tags.size() <= 10 && (data.tags.size() == 0 || (data.tags[0] is string && data.tags[0].size() <= 40)))) &&
+      (!('assignedWorkerId' in data) || (data.assignedWorkerId is string && data.assignedWorkerId.size() <= 64)) &&
+      data.isDeleted is bool &&
+      (!('deleteReason' in data) || (data.deleteReason is string && data.deleteReason.size() <= 300)) &&
+      data.createdBy is string && data.createdBy.size() <= 128 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidFamily(data) {
+      return data.keys().hasAll([
+        'familyCode', 'headName', 'villageId', 'villagePartId', 'pollingStationId',
+        'address', 'statusRollup', 'createdBy', 'createdAt', 'updatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'familyCode', 'headVoterId', 'headName', 'villageId', 'villagePartId',
+        'pollingStationId', 'address', 'statusRollup', 'createdBy', 'createdAt', 'updatedAt'
+      ]) &&
+      data.familyCode is string && data.familyCode.size() >= 1 && data.familyCode.size() <= 64 &&
+      (!('headVoterId' in data) || (data.headVoterId is string && data.headVoterId.size() <= 64)) &&
+      data.headName is string && data.headName.size() >= 1 && data.headName.size() <= 120 &&
+      data.villageId is string && data.villageId.size() <= 64 &&
+      data.villagePartId is string && data.villagePartId.size() <= 64 &&
+      data.pollingStationId is string && data.pollingStationId.size() <= 64 &&
+      data.address is string && data.address.size() <= 250 &&
+      data.statusRollup is string && data.statusRollup.size() <= 64 &&
+      data.createdBy is string && data.createdBy.size() <= 128 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidVillage(data) {
+      return data.keys().hasAll(['code', 'name', 'lat', 'lng', 'createdBy', 'createdAt', 'updatedAt']) &&
+      data.keys().hasOnly(['code', 'name', 'lat', 'lng', 'createdBy', 'createdAt', 'updatedAt']) &&
+      data.code is string && data.code.size() >= 1 && data.code.size() <= 32 &&
+      data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+      data.lat is number && data.lng is number &&
+      data.createdBy is string && data.createdBy.size() <= 128 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidVillagePart(data) {
+      return data.keys().hasAll(['code', 'name', 'villageId', 'pollingStationId', 'partNo', 'createdBy', 'createdAt', 'updatedAt']) &&
+      data.keys().hasOnly(['code', 'name', 'villageId', 'pollingStationId', 'partNo', 'createdBy', 'createdAt', 'updatedAt']) &&
+      data.code is string && data.code.size() >= 1 && data.code.size() <= 32 &&
+      data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+      data.villageId is string && data.villageId.size() <= 64 &&
+      data.pollingStationId is string && data.pollingStationId.size() <= 64 &&
+      data.partNo is int && data.partNo >= 1 && data.partNo <= 200 &&
+      data.createdBy is string && data.createdBy.size() <= 128 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidPollingStation(data) {
+      return data.keys().hasAll(['psNo', 'name', 'location', 'lat', 'lng', 'partNos', 'inchargeId', 'workerIds', 'createdBy', 'createdAt', 'updatedAt']) &&
+      data.keys().hasOnly(['psNo', 'name', 'location', 'lat', 'lng', 'partNos', 'inchargeId', 'workerIds', 'createdBy', 'createdAt', 'updatedAt']) &&
+      data.psNo is int && data.psNo >= 1 && data.psNo <= 31 &&
+      data.name is string && data.name.size() >= 1 && data.name.size() <= 160 &&
+      data.location is string && data.location.size() >= 1 && data.location.size() <= 200 &&
+      data.lat is number && data.lng is number &&
+      data.partNos is list && data.partNos.size() <= 10 && (data.partNos.size() == 0 || data.partNos[0] is int) &&
+      data.inchargeId is string && data.inchargeId.size() <= 64 &&
+      data.workerIds is list && data.workerIds.size() <= 20 && (data.workerIds.size() == 0 || (data.workerIds[0] is string && data.workerIds[0].size() <= 64)) &&
+      data.createdBy is string && data.createdBy.size() <= 128 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidTask(data) {
+      return data.keys().hasAll(['voterId', 'pollingStationId', 'title', 'type', 'assigneeId', 'dueDate', 'priority', 'status', 'createdBy', 'createdAt', 'updatedAt']) &&
+      data.keys().hasOnly(['voterId', 'familyId', 'pollingStationId', 'title', 'type', 'assigneeId', 'dueDate', 'priority', 'status', 'createdBy', 'createdAt', 'updatedAt']) &&
+      data.voterId is string && data.voterId.size() <= 64 &&
+      (!('familyId' in data) || (data.familyId is string && data.familyId.size() <= 64)) &&
+      data.pollingStationId is string && data.pollingStationId.size() <= 64 &&
+      data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+      data.type is string && data.type in ['Verification', 'Issue Resolution', 'Meeting', 'Follow-up'] &&
+      data.assigneeId is string && data.assigneeId.size() <= 128 &&
+      data.dueDate is string && data.dueDate.size() <= 40 &&
+      data.priority is string && data.priority in ['High', 'Medium', 'Low'] &&
+      data.status is string && data.status in ['Pending', 'Scheduled', 'Overdue', 'Completed'] &&
+      data.createdBy is string && data.createdBy.size() <= 128 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidNote(data) {
+      return data.keys().hasAll(['voterId', 'pollingStationId', 'content', 'authorName', 'createdBy', 'createdAt']) &&
+      data.keys().hasOnly(['voterId', 'pollingStationId', 'content', 'authorName', 'createdBy', 'createdAt']) &&
+      data.voterId is string && data.voterId.size() <= 64 &&
+      data.pollingStationId is string && data.pollingStationId.size() <= 64 &&
+      data.content is string && data.content.size() >= 1 && data.content.size() <= 1000 &&
+      data.authorName is string && data.authorName.size() <= 120 &&
+      data.createdBy is string && data.createdBy.size() <= 128 &&
+      data.createdAt is timestamp;
+    }
+
+    function isValidVisit(data) {
+      return data.keys().hasAll(['voterId', 'pollingStationId', 'outcome', 'lat', 'lng', 'createdBy', 'createdAt']) &&
+      data.keys().hasOnly(['voterId', 'pollingStationId', 'outcome', 'lat', 'lng', 'createdBy', 'createdAt']) &&
+      data.voterId is string && data.voterId.size() <= 64 &&
+      data.pollingStationId is string && data.pollingStationId.size() <= 64 &&
+      data.outcome is string && data.outcome.size() >= 1 && data.outcome.size() <= 300 &&
+      data.lat is number && data.lng is number &&
+      data.createdBy is string && data.createdBy.size() <= 128 &&
+      data.createdAt is timestamp;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'name', 'email', 'role', 'pollingStationIds', 'villageIds', 'active', 'createdBy', 'createdAt', 'updatedAt']) &&
+      data.keys().hasOnly(['uid', 'name', 'email', 'role', 'pollingStationIds', 'villageIds', 'active', 'createdBy', 'createdAt', 'updatedAt']) &&
+      data.uid is string && data.uid.size() <= 128 &&
+      data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+      data.email is string && data.email.size() <= 160 &&
+      data.role is string && data.role in ['Super Admin', 'Admin/Coordinator', 'Polling Station Incharge', 'Field Worker', 'Viewer'] &&
+      data.pollingStationIds is list && data.pollingStationIds.size() <= 31 && (data.pollingStationIds.size() == 0 || (data.pollingStationIds[0] is string && data.pollingStationIds[0].size() <= 64)) &&
+      data.villageIds is list && data.villageIds.size() <= 20 && (data.villageIds.size() == 0 || (data.villageIds[0] is string && data.villageIds[0].size() <= 64)) &&
+      data.active is bool &&
+      data.createdBy is string && data.createdBy.size() <= 128 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidImportBatch(data) {
+      return data.keys().hasAll(['fileName', 'totalRows', 'validRows', 'errorRows', 'unassignedRows', 'status', 'createdBy', 'createdAt', 'updatedAt']) &&
+      data.keys().hasOnly(['fileName', 'totalRows', 'validRows', 'errorRows', 'unassignedRows', 'status', 'createdBy', 'createdAt', 'updatedAt']) &&
+      data.fileName is string && data.fileName.size() >= 1 && data.fileName.size() <= 200 &&
+      data.totalRows is int && data.totalRows >= 0 &&
+      data.validRows is int && data.validRows >= 0 &&
+      data.errorRows is int && data.errorRows >= 0 &&
+      data.unassignedRows is int && data.unassignedRows >= 0 &&
+      data.status is string && data.status in ['Completed', 'Rolled Back'] &&
+      data.createdBy is string && data.createdBy.size() <= 128 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    function isValidAuditLog(data) {
+      return data.keys().hasAll(['entity', 'entityId', 'action', 'field', 'oldValue', 'newValue', 'userName', 'createdBy', 'createdAt']) &&
+      data.keys().hasOnly(['entity', 'entityId', 'action', 'field', 'oldValue', 'newValue', 'userName', 'createdBy', 'createdAt']) &&
+      data.entity is string && data.entity.size() >= 1 && data.entity.size() <= 64 &&
+      data.entityId is string && data.entityId.size() >= 1 && data.entityId.size() <= 64 &&
+      data.action is string && data.action.size() >= 1 && data.action.size() <= 64 &&
+      data.field is string && data.field.size() <= 64 &&
+      data.oldValue is string && data.oldValue.size() <= 500 &&
+      data.newValue is string && data.newValue.size() <= 500 &&
+      data.userName is string && data.userName.size() <= 120 &&
+      data.createdBy is string && data.createdBy.size() <= 128 &&
+      data.createdAt is timestamp;
+    }
+
+    function isValidExportRequest(data) {
+      return data.keys().hasAll(['scopeDescription', 'recordCount', 'reason', 'status', 'requesterName', 'createdBy', 'createdAt', 'updatedAt']) &&
+      data.keys().hasOnly(['scopeDescription', 'recordCount', 'reason', 'status', 'requesterName', 'approvedBy', 'createdBy', 'createdAt', 'updatedAt']) &&
+      data.scopeDescription is string && data.scopeDescription.size() >= 1 && data.scopeDescription.size() <= 250 &&
+      data.recordCount is int && data.recordCount >= 1 &&
+      data.reason is string && data.reason.size() >= 1 && data.reason.size() <= 300 &&
+      data.status is string && data.status in ['Pending Approval', 'Approved', 'Rejected'] &&
+      data.requesterName is string && data.requesterName.size() <= 120 &&
+      (!('approvedBy' in data) || (data.approvedBy is string && data.approvedBy.size() <= 128)) &&
+      data.createdBy is string && data.createdBy.size() <= 128 &&
+      data.createdAt is timestamp &&
+      data.updatedAt is timestamp;
+    }
+
+    // Collection 1: Voters (contains PII - restricted read/write)
+    match /voters/{voterId} {
+      allow get: if isSignedIn() && isValidId(voterId) && (existing().assignedWorkerId == request.auth.uid || existing().createdBy == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().assignedWorkerId == request.auth.uid || existing().createdBy == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(voterId) && isValidVoter(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (isAdmin() || exists(/databases/$(database)/documents/pollingStations/$(incoming().pollingStationId)));
+      allow update: if isSignedIn() && isValidId(voterId) && isValidVoter(incoming()) &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (existing().status != 'Removed' || isAdmin()) && (
+          isAdmin() ||
+          (existing().assignedWorkerId == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'issueType', 'issueResolutionNote', 'tags', 'phone', 'updatedAt']))
+        );
+      allow delete: if isSignedIn() && isValidId(voterId) && isAdmin();
+    }
+
+    // Collection 2: Families
+    match /families/{familyId} {
+      allow get: if isSignedIn() && isValidId(familyId) && (existing().createdBy == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().createdBy == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(familyId) && isValidFamily(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isSignedIn() && isValidId(familyId) && isValidFamily(incoming()) &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (existing().createdBy == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['statusRollup', 'headVoterId', 'headName', 'updatedAt']))
+        );
+      allow delete: if isSignedIn() && isValidId(familyId) && isAdmin();
+    }
+
+    // Collection 3: Villages
+    match /villages/{villageId} {
+      allow get: if isSignedIn() && isValidId(villageId) && (existing().createdBy == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().createdBy == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(villageId) && isValidVillage(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isSignedIn() && isValidId(villageId) && isValidVillage(incoming()) &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow delete: if isSignedIn() && isValidId(villageId) && isAdmin();
+    }
+
+    // Collection 4: VillageParts
+    match /villageParts/{villagePartId} {
+      allow get: if isSignedIn() && isValidId(villagePartId) && (existing().createdBy == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().createdBy == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(villagePartId) && isValidVillagePart(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isSignedIn() && isValidId(villagePartId) && isValidVillagePart(incoming()) &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow delete: if isSignedIn() && isValidId(villagePartId) && isAdmin();
+    }
+
+    // Collection 5: PollingStations
+    match /pollingStations/{pollingStationId} {
+      allow get: if isSignedIn() && isValidId(pollingStationId) && (existing().inchargeId == request.auth.uid || existing().createdBy == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().inchargeId == request.auth.uid || existing().createdBy == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(pollingStationId) && isValidPollingStation(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isSignedIn() && isValidId(pollingStationId) && isValidPollingStation(incoming()) &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow delete: if isSignedIn() && isValidId(pollingStationId) && isAdmin();
+    }
+
+    // Collection 6: Tasks
+    match /tasks/{taskId} {
+      allow get: if isSignedIn() && isValidId(taskId) && (existing().assigneeId == request.auth.uid || existing().createdBy == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().assigneeId == request.auth.uid || existing().createdBy == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(taskId) && isValidTask(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        exists(/databases/$(database)/documents/voters/$(incoming().voterId));
+      allow update: if isSignedIn() && isValidId(taskId) && isValidTask(incoming()) &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (existing().status != 'Completed' || isAdmin()) && (
+          isAdmin() ||
+          (existing().assigneeId == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']))
+        );
+      allow delete: if isSignedIn() && isValidId(taskId) && isAdmin();
+    }
+
+    // Collection 7: Notes
+    match /notes/{noteId} {
+      allow get: if isSignedIn() && isValidId(noteId) && (existing().createdBy == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().createdBy == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(noteId) && isValidNote(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        exists(/databases/$(database)/documents/voters/$(incoming().voterId));
+      allow update, delete: if isSignedIn() && isValidId(noteId) && isAdmin();
+    }
+
+    // Collection 8: Visits
+    match /visits/{visitId} {
+      allow get: if isSignedIn() && isValidId(visitId) && (existing().createdBy == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().createdBy == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(visitId) && isValidVisit(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        exists(/databases/$(database)/documents/voters/$(incoming().voterId));
+      allow update, delete: if isSignedIn() && isValidId(visitId) && isAdmin();
+    }
+
+    // Collection 9: Users (PII isolated to owner or admin)
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isSignedIn() && (existing().uid == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(userId) && isValidUser(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isSignedIn() && isValidId(userId) && isValidUser(incoming()) &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          isAdmin() ||
+          (isOwner(userId) &&
+            incoming().role == existing().role &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'updatedAt']))
+        );
+      allow delete: if isSignedIn() && isValidId(userId) && isAdmin();
+    }
+
+    // Collection 10: ImportBatches
+    match /importBatches/{batchId} {
+      allow get: if isSignedIn() && isValidId(batchId) && (existing().createdBy == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().createdBy == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(batchId) && isValidImportBatch(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isSignedIn() && isValidId(batchId) && isValidImportBatch(incoming()) &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (existing().status != 'Rolled Back' || isAdmin()) &&
+        isAdmin() &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+      allow delete: if isSignedIn() && isValidId(batchId) && isAdmin();
+    }
+
+    // Collection 11: AuditLogs (Immutable)
+    match /auditLogs/{logId} {
+      allow get: if isSignedIn() && isValidId(logId) && isAdmin();
+      allow list: if isSignedIn() && (existing().createdBy == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(logId) && isValidAuditLog(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().createdAt == request.time;
+      allow update, delete: if false;
+    }
+
+    // Collection 12: ExportRequests
+    match /exportRequests/{requestId} {
+      allow get: if isSignedIn() && isValidId(requestId) && (existing().createdBy == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().createdBy == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(requestId) && isValidExportRequest(incoming()) &&
+        incoming().createdBy == request.auth.uid &&
+        incoming().status == 'Pending Approval' &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && isValidId(requestId) && isValidExportRequest(incoming()) &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (existing().status == 'Pending Approval' || isAdmin()) &&
+        isAdmin() &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'approvedBy', 'updatedAt']);
+      allow delete: if isSignedIn() && isValidId(requestId) && isAdmin();
+    }
+
+    // Supporting Collection: Admins lookup
+    match /admins/{adminId} {
+      allow get: if isSignedIn() && isValidId(adminId) && (isOwner(adminId) || isAdmin());
+      allow list, create, update, delete: if false;
+    }
+  }
+}

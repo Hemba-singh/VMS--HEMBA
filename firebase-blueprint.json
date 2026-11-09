@@ -1,0 +1,318 @@
+{
+  "entities": {
+    "Voter": {
+      "title": "Voter",
+      "description": "Registered voter record in AC-31 Thoubal constituency",
+      "type": "object",
+      "properties": {
+        "epicNo": { "type": "string", "minLength": 10, "maxLength": 10, "pattern": "^[A-Z]{3}[0-9]{7}$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "nameLocal": { "type": "string", "maxLength": 120 },
+        "fatherName": { "type": "string", "maxLength": 120 },
+        "motherName": { "type": "string", "maxLength": 120 },
+        "spouseName": { "type": "string", "maxLength": 120 },
+        "age": { "type": "number" },
+        "gender": { "type": "string", "enum": ["M", "F", "O"] },
+        "phone": { "type": "string", "maxLength": 20 },
+        "familyId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "partNo": { "type": "number" },
+        "serialNo": { "type": "number" },
+        "villageId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "villagePartId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "pollingStationId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "addressId": { "type": "string", "maxLength": 200 },
+        "status": { "type": "string", "enum": ["Verified", "Pending", "Issues", "New", "Removed"] },
+        "category": { "type": "string", "enum": ["Voter", "Opponent", "Pending", "Worker"] },
+        "colorState": { "type": "string", "enum": ["Our Voter", "Opponent Voter", "Pending Voter", "Worker Voter"] },
+        "issueType": { "type": "string", "maxLength": 64 },
+        "issueResolutionNote": { "type": "string", "maxLength": 500 },
+        "tags": { "type": "array" },
+        "assignedWorkerId": { "type": "string", "maxLength": 64 },
+        "isDeleted": { "type": "boolean" },
+        "deleteReason": { "type": "string", "maxLength": 300 },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "epicNo",
+        "name",
+        "age",
+        "gender",
+        "familyId",
+        "partNo",
+        "serialNo",
+        "villageId",
+        "villagePartId",
+        "pollingStationId",
+        "status",
+        "isDeleted",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Family": {
+      "title": "Family",
+      "description": "Household family grouping for AC-31 Thoubal voters",
+      "type": "object",
+      "properties": {
+        "familyCode": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "headVoterId": { "type": "string", "maxLength": 64 },
+        "headName": { "type": "string", "maxLength": 120 },
+        "villageId": { "type": "string", "maxLength": 64 },
+        "villagePartId": { "type": "string", "maxLength": 64 },
+        "pollingStationId": { "type": "string", "maxLength": 64 },
+        "address": { "type": "string", "maxLength": 250 },
+        "statusRollup": { "type": "string", "maxLength": 64 },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["familyCode", "headName", "villageId", "villagePartId", "pollingStationId", "address", "statusRollup", "createdBy", "createdAt", "updatedAt"]
+    },
+    "Village": {
+      "title": "Village",
+      "description": "Village master record in AC-31 Thoubal",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "name", "lat", "lng", "createdBy", "createdAt", "updatedAt"]
+    },
+    "VillagePart": {
+      "title": "VillagePart",
+      "description": "Leikai or ward part belonging to a village and mapped to a polling station",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "villageId": { "type": "string", "maxLength": 64 },
+        "pollingStationId": { "type": "string", "maxLength": 64 },
+        "partNo": { "type": "number" },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "name", "villageId", "pollingStationId", "partNo", "createdBy", "createdAt", "updatedAt"]
+    },
+    "PollingStation": {
+      "title": "PollingStation",
+      "description": "Polling station master record (PS 1-41) in AC-31 Thoubal",
+      "type": "object",
+      "properties": {
+        "psNo": { "type": "number" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "location": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "partNos": { "type": "array" },
+        "inchargeId": { "type": "string", "maxLength": 64 },
+        "workerIds": { "type": "array" },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["psNo", "name", "location", "lat", "lng", "partNos", "inchargeId", "workerIds", "createdBy", "createdAt", "updatedAt"]
+    },
+    "Task": {
+      "title": "Task",
+      "description": "Field verification or follow-up task assigned to a worker",
+      "type": "object",
+      "properties": {
+        "voterId": { "type": "string", "maxLength": 64 },
+        "familyId": { "type": "string", "maxLength": 64 },
+        "pollingStationId": { "type": "string", "maxLength": 64 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "type": { "type": "string", "enum": ["Verification", "Issue Resolution", "Meeting", "Follow-up"] },
+        "assigneeId": { "type": "string", "maxLength": 128 },
+        "dueDate": { "type": "string", "maxLength": 40 },
+        "priority": { "type": "string", "enum": ["High", "Medium", "Low"] },
+        "status": { "type": "string", "enum": ["Pending", "Scheduled", "Overdue", "Completed"] },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["voterId", "pollingStationId", "title", "type", "assigneeId", "dueDate", "priority", "status", "createdBy", "createdAt", "updatedAt"]
+    },
+    "Note": {
+      "title": "Note",
+      "description": "Verification or field note attached to a voter",
+      "type": "object",
+      "properties": {
+        "voterId": { "type": "string", "maxLength": 64 },
+        "pollingStationId": { "type": "string", "maxLength": 64 },
+        "content": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "authorName": { "type": "string", "maxLength": 120 },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["voterId", "pollingStationId", "content", "authorName", "createdBy", "createdAt"]
+    },
+    "Visit": {
+      "title": "Visit",
+      "description": "Field visit log for a voter household",
+      "type": "object",
+      "properties": {
+        "voterId": { "type": "string", "maxLength": 64 },
+        "pollingStationId": { "type": "string", "maxLength": 64 },
+        "outcome": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["voterId", "pollingStationId", "outcome", "lat", "lng", "createdBy", "createdAt"]
+    },
+    "User": {
+      "title": "User",
+      "description": "System user with role and polling station/village scope",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "email": { "type": "string", "maxLength": 160 },
+        "role": { "type": "string", "enum": ["Super Admin", "Admin/Coordinator", "Polling Station Incharge", "Field Worker", "Viewer"] },
+        "pollingStationIds": { "type": "array" },
+        "villageIds": { "type": "array" },
+        "active": { "type": "boolean" },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "name", "email", "role", "pollingStationIds", "villageIds", "active", "createdBy", "createdAt", "updatedAt"]
+    },
+    "ImportBatch": {
+      "title": "ImportBatch",
+      "description": "Batch metadata for imported voter files",
+      "type": "object",
+      "properties": {
+        "fileName": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "totalRows": { "type": "number" },
+        "validRows": { "type": "number" },
+        "errorRows": { "type": "number" },
+        "unassignedRows": { "type": "number" },
+        "status": { "type": "string", "enum": ["Completed", "Rolled Back"] },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["fileName", "totalRows", "validRows", "errorRows", "unassignedRows", "status", "createdBy", "createdAt", "updatedAt"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Immutable audit log entry for edits, deletes, imports, exports, and logins",
+      "type": "object",
+      "properties": {
+        "entity": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "entityId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "action": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "field": { "type": "string", "maxLength": 64 },
+        "oldValue": { "type": "string", "maxLength": 500 },
+        "newValue": { "type": "string", "maxLength": 500 },
+        "userName": { "type": "string", "maxLength": 120 },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["entity", "entityId", "action", "field", "oldValue", "newValue", "userName", "createdBy", "createdAt"]
+    },
+    "ExportRequest": {
+      "title": "ExportRequest",
+      "description": "Export request requiring Admin approval",
+      "type": "object",
+      "properties": {
+        "scopeDescription": { "type": "string", "minLength": 1, "maxLength": 250 },
+        "recordCount": { "type": "number" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "status": { "type": "string", "enum": ["Pending Approval", "Approved", "Rejected"] },
+        "requesterName": { "type": "string", "maxLength": 120 },
+        "approvedBy": { "type": "string", "maxLength": 128 },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["scopeDescription", "recordCount", "reason", "status", "requesterName", "createdBy", "createdAt", "updatedAt"]
+    },
+    "VoterNotification": {
+      "title": "VoterNotification",
+      "description": "Individual notification sent to a specific voter",
+      "type": "object",
+      "properties": {
+        "voterId": { "type": "string", "maxLength": 64 },
+        "voterName": { "type": "string", "maxLength": 120 },
+        "epicNo": { "type": "string", "maxLength": 10 },
+        "phone": { "type": "string", "maxLength": 32 },
+        "pollingStationId": { "type": "string", "maxLength": 64 },
+        "channel": { "type": "string", "enum": ["SMS", "WhatsApp", "Voice Call", "Field Slip"] },
+        "templateType": { "type": "string", "enum": ["Polling Slip", "Verification Reminder", "Booth Update", "Custom Message"] },
+        "subject": { "type": "string", "maxLength": 160 },
+        "message": { "type": "string", "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["Sent", "Delivered", "Read", "Failed"] },
+        "sentByName": { "type": "string", "maxLength": 120 },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["voterId", "voterName", "epicNo", "phone", "pollingStationId", "channel", "templateType", "subject", "message", "status", "sentByName", "createdBy", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/voters/{voterId}": {
+      "schema": { "$ref": "#/entities/Voter" },
+      "description": "Voter master records in AC-31 Thoubal"
+    },
+    "/families/{familyId}": {
+      "schema": { "$ref": "#/entities/Family" },
+      "description": "Household family groups"
+    },
+    "/villages/{villageId}": {
+      "schema": { "$ref": "#/entities/Village" },
+      "description": "Constituency village master records"
+    },
+    "/villageParts/{villagePartId}": {
+      "schema": { "$ref": "#/entities/VillagePart" },
+      "description": "Leikai / ward parts mapped to polling stations"
+    },
+    "/pollingStations/{pollingStationId}": {
+      "schema": { "$ref": "#/entities/PollingStation" },
+      "description": "Polling stations PS 1-31"
+    },
+    "/tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/Task" },
+      "description": "Field verification and follow-up tasks"
+    },
+    "/notes/{noteId}": {
+      "schema": { "$ref": "#/entities/Note" },
+      "description": "Notes on voters and households"
+    },
+    "/visits/{visitId}": {
+      "schema": { "$ref": "#/entities/Visit" },
+      "description": "Logged field visits"
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "System user accounts and role assignments"
+    },
+    "/importBatches/{batchId}": {
+      "schema": { "$ref": "#/entities/ImportBatch" },
+      "description": "Imported electoral roll batches"
+    },
+    "/auditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Immutable system audit log"
+    },
+    "/exportRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/ExportRequest" },
+      "description": "Admin approval workflow for data exports"
+    },
+    "/voterNotifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/VoterNotification" },
+      "description": "Individual notifications dispatched to voters"
+    }
+  }
+}

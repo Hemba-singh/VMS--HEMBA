@@ -1,0 +1,126 @@
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --apple-bg: #ffffff;
+    --apple-surface: #f5f5f7;
+    --apple-text: #1d1d1f;
+    --apple-secondary: #6e6e73;
+    --apple-hairline: #d2d2d7;
+    --apple-accent: #0071e3;
+    --apple-red: #ff3b30;
+    color-scheme: light;
+  }
+
+  html.dark {
+    --apple-bg: #000000;
+    --apple-surface: #1c1c1e;
+    --apple-text: #f5f5f7;
+    --apple-secondary: #a1a1a6;
+    --apple-hairline: #38383a;
+    --apple-accent: #0071e3;
+    --apple-red: #ff3b30;
+    color-scheme: dark;
+  }
+
+  body {
+    font-family: -apple-system, "SF Pro Display", "SF Pro Text", Inter, "Helvetica Neue", sans-serif;
+    background-color: var(--apple-bg);
+    color: var(--apple-text);
+    font-size: 17px;
+    line-height: 1.5;
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    transition: background-color 250ms ease-out, color 250ms ease-out;
+  }
+
+  h1, h2, h3, h4 {
+    letter-spacing: -0.02em;
+    font-weight: 600;
+  }
+}
+
+/* Subtle scroll/page reveal animation respecting prefers-reduced-motion */
+@keyframes appleReveal {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.apple-reveal {
+  animation: appleReveal 450ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .apple-reveal {
+    animation: none !important;
+    transform: none !important;
+  }
+}
+
+/* Harmonized Apple Dark Mode surface, text, and hairline mappings across all views */
+html.dark .bg-white {
+  background-color: #1c1c1e !important;
+}
+
+html.dark .bg-\[\#f5f5f7\],
+html.dark .bg-slate-50,
+html.dark .bg-slate-50\/95,
+html.dark .bg-slate-50\/90,
+html.dark .bg-slate-50\/80,
+html.dark .bg-slate-50\/70,
+html.dark .bg-slate-50\/60,
+html.dark .bg-slate-50\/50,
+html.dark .bg-slate-50\/40 {
+  background-color: #000000 !important;
+}
+
+html.dark .bg-slate-100 {
+  background-color: #2c2c2e !important;
+}
+
+html.dark .text-slate-900,
+html.dark .text-slate-800,
+html.dark .text-\[\#1d1d1f\] {
+  color: #f5f5f7 !important;
+}
+
+html.dark .text-slate-700,
+html.dark .text-slate-600,
+html.dark .text-slate-500,
+html.dark .text-\[\#6e6e73\] {
+  color: #a1a1a6 !important;
+}
+
+html.dark .border-slate-200,
+html.dark .border-slate-300,
+html.dark .border-slate-100,
+html.dark .border-\[\#d2d2d7\],
+html.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #38383a !important;
+}
+
+html.dark input,
+html.dark select,
+html.dark textarea {
+  background-color: #1c1c1e;
+  color: #f5f5f7;
+  border-color: #38383a;
+}
