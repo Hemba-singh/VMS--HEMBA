@@ -30,95 +30,6 @@ interface RawImportRow {
   address: string;
 }
 
-const SAMPLE_ELECTORAL_ROLL_ROWS: RawImportRow[] = [
-  {
-    rowNum: 1,
-    epicNo: 'MNP8821901',
-    name: 'Thokchom Sanajaoba Singh',
-    fatherName: 'Thokchom Ibohal Singh',
-    motherName: 'Thokchom Memcha Devi',
-    spouseName: 'Thokchom Bimala Devi',
-    age: 39,
-    gender: 'M',
-    phone: '9862771001',
-    partNo: 1,
-    address: 'H.No. 88, Thokchom Awang Leikai',
-  },
-  {
-    rowNum: 2,
-    epicNo: 'MNP8821902',
-    name: 'Thokchom Bimala Devi',
-    fatherName: 'Laishram Tomba Singh',
-    motherName: 'Laishram Ibemhal Devi',
-    spouseName: 'Thokchom Sanajaoba Singh',
-    age: 35,
-    gender: 'F',
-    phone: '9862771002',
-    partNo: 1,
-    address: 'H.No. 88, Thokchom Awang Leikai',
-  },
-  {
-    rowNum: 3,
-    epicNo: 'THB7712304',
-    name: 'Konjengbam Premjit Meitei',
-    fatherName: 'Konjengbam Mangibabu Singh',
-    motherName: 'Konjengbam Thoibi Devi',
-    age: 21,
-    gender: 'M',
-    phone: '9436221098',
-    partNo: 4,
-    address: 'H.No. 14, Konjengbam Awang Leikai',
-  },
-  {
-    rowNum: 4,
-    epicNo: 'YUM5512098',
-    name: 'Yumnam Lanchenbi Devi',
-    fatherName: 'Yumnam Ranjit Singh',
-    motherName: 'Yumnam Kunjarani Devi',
-    age: 19,
-    gender: 'F',
-    phone: '8794112233',
-    partNo: 7,
-    address: 'H.No. 52, Yumnam Huidrom Leikai',
-  },
-  {
-    rowNum: 5,
-    epicNo: 'INVALID99', // Invalid EPIC format (not 3 letters + 7 digits)
-    name: 'Laishram Chaoba Singh',
-    fatherName: 'Laishram Doren Singh',
-    motherName: 'Laishram Sanahanbi Devi',
-    age: 44,
-    gender: 'M',
-    phone: '9862001122',
-    partNo: 10,
-    address: 'H.No. 12, Laishram Mamang Leikai',
-  },
-  {
-    rowNum: 6,
-    epicNo: 'MNP8821909',
-    name: 'Ningthoujam Rahul Singh',
-    fatherName: 'Ningthoujam Brojen Singh',
-    motherName: 'Ningthoujam Roshni Devi',
-    age: 17, // Under 18 flag!
-    gender: 'M',
-    phone: '9862334455',
-    partNo: 13,
-    address: 'H.No. 91, Ningthoujam Awang Leikai',
-  },
-  {
-    rowNum: 7,
-    epicNo: 'WNG9901234',
-    name: 'Wangkhem Surjit Singh',
-    fatherName: 'Wangkhem Gourahari Singh',
-    motherName: 'Wangkhem Jamuna Devi',
-    age: 51,
-    gender: 'M',
-    phone: '9862998877',
-    partNo: 85, // Unmapped Part No -> goes to Unassigned Queue!
-    address: 'Border Ward 85, Outskirts Road',
-  },
-];
-
 export default function ImportDataView() {
   const {
     voters,
@@ -126,14 +37,15 @@ export default function ImportDataView() {
     families,
     importBatches,
     unassignedImports,
+    currentUser,
     commitImportBatch,
     rollbackImportBatch,
     allocateUnassignedRecord,
   } = useVoterStore();
 
-  const [fileName, setFileName] = useState<string>('AC31_Thoubal_Supplemental_Roll_Nov2026.csv');
-  const [rawRows, setRawRows] = useState<RawImportRow[]>(SAMPLE_ELECTORAL_ROLL_ROWS);
-  const [step, setStep] = useState<'upload' | 'mapping' | 'preview'>('preview');
+  const [fileName, setFileName] = useState<string>('');
+  const [rawRows, setRawRows] = useState<RawImportRow[]>([]);
+  const [step, setStep] = useState<'upload' | 'mapping' | 'preview'>('upload');
   const [selectedVpForUnassigned, setSelectedVpForUnassigned] = useState<Record<string, string>>({});
 
   const existingEpics = useMemo(() => new Set(voters.map((v) => v.epicNo)), [voters]);
@@ -207,13 +119,14 @@ export default function ImportDataView() {
         continue;
       }
 
-      const fam = families.find((f) => f.villagePartId === vp.id) || families[0];
+      const fam = families.find((f) => f.villagePartId === vp.id);
+      const targetFamilyId = fam ? fam.id : `fam-part-${vp.partNo}`;
       valid.push({
         row: r,
         vpId: vp.id,
         villageId: vp.villageId,
         psId: vp.pollingStationId,
-        familyId: fam.id,
+        familyId: targetFamilyId,
       });
     }
 
@@ -287,7 +200,7 @@ export default function ImportDataView() {
       addressId: v.row.address,
       status: 'New' as const,
       tags: ['Imported Batch'],
-      assignedWorkerId: 'usr-worker-1',
+      assignedWorkerId: currentUser?.id || 'usr-super-admin',
     }));
 
     const unassignedPayload = validationResult.unassigned.map((u) => ({
@@ -352,17 +265,6 @@ export default function ImportDataView() {
               <span>Choose CSV File</span>
               <input type="file" accept=".csv,.txt" onChange={handleFileUpload} className="hidden" />
             </label>
-            <button
-              type="button"
-              onClick={() => {
-                setFileName('AC31_Thoubal_Supplemental_Roll_Nov2026.csv');
-                setRawRows(SAMPLE_ELECTORAL_ROLL_ROWS);
-                setStep('preview');
-              }}
-              className="rounded-full border border-slate-300 bg-slate-50 px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-            >
-              Load Sample ECI Supplemental Batch (7 Rows)
-            </button>
           </div>
         </div>
       )}

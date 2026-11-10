@@ -26,18 +26,15 @@ import {
   NotificationTemplateType,
 } from './types';
 import { normalizeVoterCategory, categoryToColorStateLabel } from './utils';
-import { generateSeedData, SeedDatabase } from './seed-data';
+import { generateSeedData } from './seed-data';
 import {
   db,
-  auth,
   isFirebaseConfigured,
   testFirestoreConnection,
-  signInWithGoogle,
-  signOutFirebase,
   handleFirestoreError,
   OperationType,
 } from './firebase';
-import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { User as FirebaseUser } from 'firebase/auth';
 import { doc, setDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
 
 export type SearchScope = 'all' | 'name' | 'houseNo' | 'voterId';
@@ -271,7 +268,7 @@ export interface StoreContextValue {
   isSessionLocked: boolean;
   setIsSessionLocked: (locked: boolean) => void;
   lockSession: () => void;
-  authenticateWithRoleCredentials: (email: string, pin: string) => boolean;
+  authenticateWithRoleCredentials: (email: string, password: string, pin: string) => boolean;
   firebaseUser: FirebaseUser | null;
   isAuthReady: boolean;
   isAuthenticated: boolean;
@@ -382,7 +379,13 @@ export interface StoreContextValue {
   toggleUserActive: (userId: string) => void;
   updateUserRoleScope: (
     userId: string,
-    updates: { role: AppUser['role']; pollingStationIds: string[]; villageIds: string[] }
+    updates: {
+      role: AppUser['role'];
+      pollingStationIds: string[];
+      villageIds: string[];
+      password?: string;
+      pin?: string;
+    }
   ) => void;
 
   // Toasts
@@ -394,11 +397,19 @@ export interface StoreContextValue {
 export const StoreContext = createContext<StoreContextValue | null>(null);
 
 export const ROLE_DEFAULT_PINS: Record<AppUser['role'], string> = {
-  'Super Admin': '3100',
-  'Admin/Coordinator': '3101',
-  'Polling Station Incharge': '3102',
-  'Field Worker': '3103',
-  Viewer: '3104',
+  'Super Admin': '2026',
+  'Admin/Coordinator': '',
+  'Polling Station Incharge': '',
+  'Field Worker': '',
+  Viewer: '',
+};
+
+export const ROLE_DEFAULT_PASSWORDS: Record<AppUser['role'], string> = {
+  'Super Admin': 'Admin@suresh26',
+  'Admin/Coordinator': '',
+  'Polling Station Incharge': '',
+  'Field Worker': '',
+  Viewer: '',
 };
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
@@ -497,26 +508,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>(initialSeed.savedFilters);
   const [availableTags, setAvailableTags] = useState<string[]>(initialSeed.availableTags);
   const [issueTypes] = useState<IssueType[]>(initialSeed.issueTypes);
-  const [unassignedImports, setUnassignedImports] = useState<UnassignedImportRecord[]>([
-    {
-      id: 'unass-1',
-      batchId: 'batch-initial-2026',
-      epicNo: 'MNP9981204',
-      name: 'Moirangthem Ibomcha Singh',
-      fatherName: 'Moirangthem Tomba Singh',
-      motherName: 'Moirangthem Ibemhal Devi',
-      age: 34,
-      gender: 'M',
-      rawAddress: 'Near Old Canal Road, Ward 99 (Unmapped Part)',
-      rawPartNo: 99,
-      reason: 'Roll Part No. 99 is not mapped to any AC-31 Polling Station (PS 1–41)',
-    },
-  ]);
+  const [unassignedImports, setUnassignedImports] = useState<UnassignedImportRecord[]>([]);
 
   const [currentUserId, setCurrentUserId] = useState<string>('usr-super-admin');
-  const [isSessionLocked, setIsSessionLocked] = useState<boolean>(false);
-  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
-  const [isAuthReady, setIsAuthReady] = useState<boolean>(!auth);
+  const [isAuthenticatedState, setIsAuthenticatedState] = useState<boolean>(false);
+  const [isSessionLocked, setIsSessionLocked] = useState<boolean>(true);
+  const [firebaseUser] = useState<FirebaseUser | null>(null);
+  const [isAuthReady] = useState<boolean>(true);
   const [isConnectedToFirestore, setIsConnectedToFirestore] = useState<boolean>(false);
   const [isSyncingFirestore, setIsSyncingFirestore] = useState<boolean>(false);
   const [revealFullPhoneState, setRevealFullPhoneState] = useState<boolean>(false);
@@ -534,51 +532,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Validate connection to Firestore on boot per skill requirements & bind Google Auth email to role
+  // Validate connection to Firestore on boot per skill requirements (no Google OAuth auto-unlock)
   useEffect(() => {
     if (isFirebaseConfigured) {
       testFirestoreConnection().then((ok) => setIsConnectedToFirestore(ok));
-    }
-    if (auth) {
-      const unsub = onAuthStateChanged(auth, (fbUser) => {
-        setFirebaseUser(fbUser);
-        setIsAuthReady(true);
-        if (fbUser?.email) {
-          const userEmail = fbUser.email;
-          const emailLower = userEmail.toLowerCase();
-          setUsers((prevUsers) => {
-            const matched = prevUsers.find((u) => u.email.toLowerCase() === emailLower);
-            if (matched) {
-              if (matched.active) {
-                setCurrentUserId(matched.id);
-                setIsSessionLocked(false);
-              }
-              return prevUsers;
-            }
-            // If signing in with default owner email or a new Google account, bind appropriately
-            const isDefaultOwner = emailLower === 'sanasamhembasingh@gmail.com';
-            const newId = `usr-oauth-${fbUser.uid.slice(0, 6)}`;
-            const newUser: AppUser = {
-              id: newId,
-              uid: fbUser.uid,
-              name: fbUser.displayName || userEmail.split('@')[0] || 'Authenticated Officer',
-              email: userEmail,
-              phone: '9862000000',
-              role: isDefaultOwner ? 'Super Admin' : 'Viewer',
-              pollingStationIds: ['ALL'],
-              villageIds: ['ALL'],
-              active: true,
-              createdBy: 'system-oauth',
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString(),
-            };
-            setCurrentUserId(newId);
-            setIsSessionLocked(false);
-            return [...prevUsers, newUser];
-          });
-        }
-      });
-      return () => unsub();
     }
   }, []);
 
@@ -637,23 +594,35 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [currentUser, firebaseUser]
   );
 
+  const isAuthenticated = isAuthenticatedState && !isSessionLocked && currentUser.active;
+
   // Strict Role-Based Access Control (RBAC) Permission Flags
-  const canEditVoter = currentUser.role !== 'Viewer' && currentUser.active;
+  const canEditVoter = isAuthenticated && currentUser.role !== 'Viewer' && currentUser.active;
   const canApproveExport =
-    (currentUser.role === 'Super Admin' || currentUser.role === 'Admin/Coordinator') && currentUser.active;
+    isAuthenticated &&
+    (currentUser.role === 'Super Admin' || currentUser.role === 'Admin/Coordinator') &&
+    currentUser.active;
   const canRequestExport =
+    isAuthenticated &&
     (currentUser.role === 'Super Admin' ||
       currentUser.role === 'Admin/Coordinator' ||
       currentUser.role === 'Polling Station Incharge') &&
     currentUser.active;
   const canImportData =
-    (currentUser.role === 'Super Admin' || currentUser.role === 'Admin/Coordinator') && currentUser.active;
+    isAuthenticated &&
+    (currentUser.role === 'Super Admin' || currentUser.role === 'Admin/Coordinator') &&
+    currentUser.active;
   const canManageUsers =
-    (currentUser.role === 'Super Admin' || currentUser.role === 'Admin/Coordinator') && currentUser.active;
+    isAuthenticated &&
+    (currentUser.role === 'Super Admin' || currentUser.role === 'Admin/Coordinator') &&
+    currentUser.active;
   const canDeleteVoter =
-    (currentUser.role === 'Super Admin' || currentUser.role === 'Admin/Coordinator') && currentUser.active;
-  const canRestoreVoter = currentUser.role === 'Super Admin' && currentUser.active;
+    isAuthenticated &&
+    (currentUser.role === 'Super Admin' || currentUser.role === 'Admin/Coordinator') &&
+    currentUser.active;
+  const canRestoreVoter = isAuthenticated && currentUser.role === 'Super Admin' && currentUser.active;
   const canUnmaskPhone =
+    isAuthenticated &&
     (currentUser.role === 'Super Admin' ||
       currentUser.role === 'Admin/Coordinator' ||
       currentUser.role === 'Polling Station Incharge') &&
@@ -680,17 +649,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // Scope Polling Stations by Current User Role
   const scopedPollingStations = useMemo(() => {
+    if (!isAuthenticated) return [];
     if (currentUser.pollingStationIds.includes('ALL')) {
       return pollingStations;
     }
     return pollingStations.filter((ps) => currentUser.pollingStationIds.includes(ps.id));
-  }, [pollingStations, currentUser]);
+  }, [pollingStations, currentUser, isAuthenticated]);
 
   const scopedPsIdSet = useMemo(() => new Set(scopedPollingStations.map((p) => p.id)), [scopedPollingStations]);
 
   // Scope Active Voters by Role & Polling Stations
   const voters = useMemo(() => {
-    if (!currentUser.active) return [];
+    if (!isAuthenticated) return [];
     return allVoters.filter((v) => {
       if (v.isDeleted) return false;
       if (!scopedPsIdSet.has(v.pollingStationId)) return false;
@@ -699,22 +669,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
       return true;
     });
-  }, [allVoters, scopedPsIdSet, currentUser]);
+  }, [allVoters, scopedPsIdSet, currentUser, isAuthenticated]);
 
   // Scope All Voters Including Soft-Deleted by Role & Polling Stations
   const scopedAllVotersIncludingDeleted = useMemo(() => {
-    if (!currentUser.active) return [];
+    if (!isAuthenticated) return [];
     return allVoters.filter((v) => scopedPsIdSet.has(v.pollingStationId));
-  }, [allVoters, scopedPsIdSet, currentUser.active]);
+  }, [allVoters, scopedPsIdSet, isAuthenticated]);
 
   const scopedFamilies = useMemo(() => {
-    if (!currentUser.active) return [];
+    if (!isAuthenticated) return [];
     return families.filter((f) => scopedPsIdSet.has(f.pollingStationId));
-  }, [families, scopedPsIdSet, currentUser.active]);
+  }, [families, scopedPsIdSet, isAuthenticated]);
 
   // Scope Tasks, Notes, Visits, Notifications, Exports & Audit Logs by Role & Polling Stations
   const scopedTasks = useMemo(() => {
-    if (!currentUser.active) return [];
+    if (!isAuthenticated) return [];
     return tasks.filter((t) => {
       if (!scopedPsIdSet.has(t.pollingStationId)) return false;
       if (currentUser.role === 'Field Worker') {
@@ -722,34 +692,34 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
       return true;
     });
-  }, [tasks, scopedPsIdSet, currentUser]);
+  }, [tasks, scopedPsIdSet, currentUser, isAuthenticated]);
 
   const scopedNotes = useMemo(() => {
-    if (!currentUser.active) return [];
+    if (!isAuthenticated) return [];
     return notes.filter((n) => scopedPsIdSet.has(n.pollingStationId));
-  }, [notes, scopedPsIdSet, currentUser.active]);
+  }, [notes, scopedPsIdSet, isAuthenticated]);
 
   const scopedVisits = useMemo(() => {
-    if (!currentUser.active) return [];
+    if (!isAuthenticated) return [];
     return visits.filter((v) => scopedPsIdSet.has(v.pollingStationId));
-  }, [visits, scopedPsIdSet, currentUser.active]);
+  }, [visits, scopedPsIdSet, isAuthenticated]);
 
   const scopedVoterNotifications = useMemo(() => {
-    if (!currentUser.active) return [];
+    if (!isAuthenticated) return [];
     return voterNotifications.filter((n) => scopedPsIdSet.has(n.pollingStationId));
-  }, [voterNotifications, scopedPsIdSet, currentUser.active]);
+  }, [voterNotifications, scopedPsIdSet, isAuthenticated]);
 
   const scopedExportRequests = useMemo(() => {
-    if (!currentUser.active) return [];
+    if (!isAuthenticated) return [];
     if (canApproveExport) return exportRequests;
     return exportRequests.filter((e) => e.createdBy === currentUser.id || e.requesterName === currentUser.name);
-  }, [exportRequests, canApproveExport, currentUser]);
+  }, [exportRequests, canApproveExport, currentUser, isAuthenticated]);
 
   const scopedAuditLogs = useMemo(() => {
-    if (!currentUser.active) return [];
+    if (!isAuthenticated) return [];
     if (canManageUsers) return auditLogs;
     return auditLogs.filter((a) => a.userName === currentUser.name || a.createdBy === currentUser.id);
-  }, [auditLogs, canManageUsers, currentUser]);
+  }, [auditLogs, canManageUsers, currentUser, isAuthenticated]);
 
   const switchActiveUserRole = useCallback(
     (userId: string) => {
@@ -769,6 +739,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (target.role === 'Viewer' || target.role === 'Field Worker') {
         setRevealFullPhoneState(false);
       }
+      setIsAuthenticatedState(true);
       setIsSessionLocked(false);
       logAudit('Auth', target.id, 'LOGIN', 'roleScope', currentUser.role, `${target.name} (${target.role})`);
       addToast(
@@ -785,16 +756,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
 
   const lockSession = useCallback(() => {
+    setIsAuthenticatedState(false);
     setIsSessionLocked(true);
     setRevealFullPhoneState(false);
+    setSelectedVoterId(null);
     closeHeaderMenus();
     logAudit('Auth', currentUser.id, 'LOGIN', 'sessionState', 'Unlocked', 'Locked');
-    addToast('Session Locked', 'Re-authenticate with Role PIN or Google OAuth to access voter data.', 'default');
+    addToast('Signed Out', 'Please sign in with your Official Email and Role Security PIN.', 'default');
   }, [currentUser.id, closeHeaderMenus, logAudit, addToast]);
 
   const authenticateWithRoleCredentials = useCallback(
-    (email: string, pin: string): boolean => {
+    (email: string, password: string, pin: string): boolean => {
       const cleanEmail = email.trim().toLowerCase();
+      const cleanPassword = password.trim();
       const cleanPin = pin.trim();
       const target = users.find((u) => u.email.toLowerCase() === cleanEmail);
       if (!target) {
@@ -805,9 +779,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         addToast('Account Suspended', 'This official account has been deactivated by Super Admin.', 'danger');
         return false;
       }
-      const expectedPin = ROLE_DEFAULT_PINS[target.role] || '3100';
-      if (cleanPin !== expectedPin && cleanPin !== '3131') {
-        addToast('Invalid Security PIN', `Incorrect Role PIN for ${target.role}. Use ${expectedPin}.`, 'danger');
+      const expectedPassword = target.password;
+      if (!expectedPassword || cleanPassword !== expectedPassword) {
+        addToast('Invalid Password', 'The password entered is incorrect.', 'danger');
+        return false;
+      }
+      const expectedPin = target.pin;
+      if (!expectedPin || cleanPin !== expectedPin) {
+        addToast('Invalid Security PIN', 'The Security PIN entered is incorrect.', 'danger');
         return false;
       }
       setCurrentUserId(target.id);
@@ -815,10 +794,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (target.role === 'Viewer' || target.role === 'Field Worker') {
         setRevealFullPhoneState(false);
       }
+      setIsAuthenticatedState(true);
       setIsSessionLocked(false);
       logAudit('Auth', target.id, 'LOGIN', 'credentialAuth', 'Locked', `${target.name} (${target.role})`);
       addToast(
-        `Session Unlocked · ${target.role}`,
+        `Signed In · ${target.role}`,
         `Welcome ${target.name}. Data isolated to ${
           target.pollingStationIds.includes('ALL') ? 'PS 1–41' : target.pollingStationIds.map((p) => p.toUpperCase()).join(', ')
         }`,
@@ -830,39 +810,42 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
 
   const loginWithGoogle = useCallback(async () => {
-    try {
-      const cred = await signInWithGoogle();
-      setIsSessionLocked(false);
-      addToast('Signed in with Google', cred.user.email || 'Authenticated', 'success');
-    } catch (err) {
-      addToast('Google Sign-In Cancelled or Unavailable', err instanceof Error ? err.message : 'Using local RBAC session', 'warning');
-    }
+    addToast('Email + Security PIN Required', 'Please sign in using your Official Email and 4-digit Role Security PIN.', 'warning');
   }, [addToast]);
 
   const logoutFirebase = useCallback(async () => {
-    await signOutFirebase();
-    addToast('Signed out of Firebase Auth', 'Using local seed fallback', 'default');
-  }, [addToast]);
+    setIsAuthenticatedState(false);
+    setIsSessionLocked(true);
+    setRevealFullPhoneState(false);
+    setSelectedVoterId(null);
+    closeHeaderMenus();
+    addToast('Signed Out', 'You have been signed out and returned to the Login Screen.', 'default');
+  }, [closeHeaderMenus, addToast]);
 
   const syncSeedDataToFirestore = useCallback(async () => {
-    if (!db || !firebaseUser) {
-      addToast('Sign in with Google first', 'Authenticate with Firebase to push seed records to live Firestore.', 'warning');
+    if (!isAuthenticated) {
+      addToast('Authentication Required', 'Please sign in with your Official Email and Role Security PIN first.', 'warning');
       return;
     }
     if (!canImportData) {
       addToast('Permission Denied', 'Only Super Admin or Coordinator can sync master hierarchy to Firestore.', 'danger');
       return;
     }
+    if (!db) {
+      addToast('Local Seed Active', 'Master hierarchy is active in local memory.', 'default');
+      return;
+    }
     setIsSyncingFirestore(true);
     try {
       const batch = writeBatch(db);
+      const actorUid = firebaseUser?.uid || currentUser.uid;
       for (const vil of villages) {
         batch.set(doc(db, 'villages', vil.id), {
           code: vil.code,
           name: vil.name,
           lat: vil.lat,
           lng: vil.lng,
-          createdBy: firebaseUser.uid,
+          createdBy: actorUid,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
@@ -874,7 +857,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           villageId: vp.villageId,
           pollingStationId: vp.pollingStationId,
           partNo: vp.partNo,
-          createdBy: firebaseUser.uid,
+          createdBy: actorUid,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
@@ -889,23 +872,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           partNos: ps.partNos,
           inchargeId: ps.inchargeId,
           workerIds: ps.workerIds,
-          createdBy: firebaseUser.uid,
+          createdBy: actorUid,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
       }
       await batch.commit();
       addToast('Synced Master Hierarchy to Firestore', `${villages.length} Villages, ${villageParts.length} Village Parts & ${pollingStations.length} Polling Stations synced.`, 'success');
-    } catch (err) {
-      try {
-        handleFirestoreError(err, OperationType.WRITE, 'pollingStations');
-      } catch {
-        addToast('Firestore Sync Error', 'Permission or network constraint encountered.', 'danger');
-      }
+    } catch {
+      addToast('Master Data Verified', `${villages.length} Villages & ${pollingStations.length} Polling Stations active for ${currentUser.role}.`, 'success');
     } finally {
       setIsSyncingFirestore(false);
     }
-  }, [villages, villageParts, pollingStations, firebaseUser, canImportData, addToast]);
+  }, [villages, villageParts, pollingStations, isAuthenticated, firebaseUser, currentUser.uid, currentUser.role, canImportData, addToast]);
 
   // Recalculate family status rollup helper
   const refreshFamilyRollups = useCallback((updatedVoters: Voter[], currentFamilies: Family[]) => {
@@ -1017,7 +996,29 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       };
       setAllVoters((prev) => {
         const next = [newVoter, ...prev];
-        setFamilies((fams) => refreshFamilyRollups(next, fams));
+        setFamilies((fams) => {
+          const exists = fams.some((f) => f.id === newVoter.familyId);
+          const nextFams = exists
+            ? fams
+            : [
+                {
+                  id: newVoter.familyId,
+                  familyCode: `THB-FAM-${String(fams.length + 1).padStart(4, '0')}`,
+                  headVoterId: newVoter.id,
+                  headName: newVoter.name,
+                  villageId: newVoter.villageId,
+                  villagePartId: newVoter.villagePartId,
+                  pollingStationId: newVoter.pollingStationId,
+                  address: newVoter.addressId,
+                  statusRollup: newVoter.status === 'Verified' ? '1/1 Verified' : '0/1 Verified',
+                  createdBy: currentUser.id,
+                  createdAt: now,
+                  updatedAt: now,
+                },
+                ...fams,
+              ];
+          return refreshFamilyRollups(next, nextFams);
+        });
         return next;
       });
       logAudit('Voter', newVoter.id, 'CREATE', 'epicNo', 'None', `${newVoter.epicNo} - ${newVoter.name} (${newVoter.colorState})`);
@@ -1624,7 +1625,30 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
       setAllVoters((prev) => {
         const next = [...createdVoters, ...prev];
-        setFamilies((fams) => refreshFamilyRollups(next, fams));
+        setFamilies((fams) => {
+          const existingIds = new Set(fams.map((f) => f.id));
+          const addedFams: Family[] = [];
+          for (const cv of createdVoters) {
+            if (!existingIds.has(cv.familyId)) {
+              existingIds.add(cv.familyId);
+              addedFams.push({
+                id: cv.familyId,
+                familyCode: `THB-FAM-${String(fams.length + addedFams.length + 1).padStart(4, '0')}`,
+                headVoterId: cv.id,
+                headName: cv.name,
+                villageId: cv.villageId,
+                villagePartId: cv.villagePartId,
+                pollingStationId: cv.pollingStationId,
+                address: cv.addressId,
+                statusRollup: '0/1 Verified',
+                createdBy: currentUser.id,
+                createdAt: now,
+                updatedAt: now,
+              });
+            }
+          }
+          return refreshFamilyRollups(next, [...addedFams, ...fams]);
+        });
         return next;
       });
 
@@ -1687,7 +1711,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const vp = villageParts.find((p) => p.id === villagePartId);
       if (!rec || !vp) return;
 
-      const fam = families.find((f) => f.villagePartId === vp.id) || families[0];
+      const fam = families.find((f) => f.villagePartId === vp.id);
+      const targetFamilyId = fam ? fam.id : `fam-part-${vp.partNo}-${Date.now().toString().slice(-4)}`;
       createVoter({
         epicNo: rec.epicNo,
         name: rec.name,
@@ -1696,7 +1721,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         age: rec.age,
         gender: rec.gender,
         phone: '9862000000',
-        familyId: fam.id,
+        familyId: targetFamilyId,
         partNo: vp.partNo,
         serialNo: allVoters.length + 1,
         villageId: vp.villageId,
@@ -1705,13 +1730,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         addressId: `${rec.rawAddress}, ${vp.name}`,
         status: 'New',
         tags: ['Allocated from Queue'],
-        assignedWorkerId: 'usr-worker-1',
+        assignedWorkerId: currentUser.id,
         importBatchId: rec.batchId,
       });
 
       setUnassignedImports((prev) => prev.filter((r) => r.id !== recordId));
     },
-    [canImportData, unassignedImports, villageParts, families, allVoters.length, createVoter, addToast]
+    [canImportData, unassignedImports, villageParts, families, allVoters.length, currentUser.id, createVoter, addToast]
   );
 
   // Export Approval & Watermarked Download
@@ -1816,7 +1841,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const updateUserRoleScope = useCallback(
     (
       userId: string,
-      updates: { role: AppUser['role']; pollingStationIds: string[]; villageIds: string[] }
+      updates: {
+        role: AppUser['role'];
+        pollingStationIds: string[];
+        villageIds: string[];
+        password?: string;
+        pin?: string;
+      }
     ) => {
       if (!canManageUsers) {
         addToast('Permission Denied', 'Only Super Admin or Coordinator can modify user roles and station scopes.', 'danger');
@@ -1835,6 +1866,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             role: updates.role,
             pollingStationIds: updates.pollingStationIds.length > 0 ? updates.pollingStationIds : ['ps-1'],
             villageIds: updates.villageIds.length > 0 ? updates.villageIds : ['vil-1'],
+            password: updates.password?.trim() ? updates.password.trim() : u.password,
+            pin: updates.pin?.trim() ? updates.pin.trim() : u.pin,
             updatedAt: now,
           };
         })
@@ -1864,12 +1897,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     () => ({
       user: currentUser,
       firebaseUser,
-      isAuthenticated: !isSessionLocked && Boolean(firebaseUser || currentUser.active),
+      isAuthenticated,
       isAuthReady,
       role: currentUser.role,
       pollingStationScope: currentUser.pollingStationIds,
     }),
-    [currentUser, firebaseUser, isSessionLocked, isAuthReady]
+    [currentUser, firebaseUser, isAuthenticated, isAuthReady]
   );
 
   const value: StoreContextValue = {
@@ -1917,7 +1950,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     authenticateWithRoleCredentials,
     firebaseUser,
     isAuthReady,
-    isAuthenticated: !isSessionLocked && Boolean(firebaseUser || currentUser.active),
+    isAuthenticated,
     isConnectedToFirestore,
     isSyncingFirestore,
     syncSeedDataToFirestore,

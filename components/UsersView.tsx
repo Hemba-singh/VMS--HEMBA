@@ -14,12 +14,11 @@ import {
   EyeOff,
   Database,
 } from 'lucide-react';
-import { useVoterStore, ROLE_DEFAULT_PINS } from '@/lib/store-context';
+import { useVoterStore } from '@/lib/store-context';
 import { AppUser, UserRole } from '@/lib/types';
 
 const RBAC_MATRIX: {
   role: UserRole;
-  pin: string;
   stationScope: string;
   editVoters: string;
   unmaskPhone: string;
@@ -30,7 +29,6 @@ const RBAC_MATRIX: {
 }[] = [
   {
     role: 'Super Admin',
-    pin: '3100',
     stationScope: 'All 41 Stations (PS 1–41)',
     editVoters: 'Full Write',
     unmaskPhone: 'Allowed (Audit Logged)',
@@ -41,7 +39,6 @@ const RBAC_MATRIX: {
   },
   {
     role: 'Admin/Coordinator',
-    pin: '3101',
     stationScope: 'All 41 Stations (PS 1–41)',
     editVoters: 'Full Write',
     unmaskPhone: 'Allowed (Audit Logged)',
@@ -52,7 +49,6 @@ const RBAC_MATRIX: {
   },
   {
     role: 'Polling Station Incharge',
-    pin: '3102',
     stationScope: 'Assigned Booths Only',
     editVoters: 'Scoped Booths Only',
     unmaskPhone: 'Scoped Booths Only',
@@ -63,7 +59,6 @@ const RBAC_MATRIX: {
   },
   {
     role: 'Field Worker',
-    pin: '3103',
     stationScope: 'Assigned Booths / Households',
     editVoters: 'Assigned Booths Only',
     unmaskPhone: 'Masked Only (98XXXXXX21)',
@@ -74,7 +69,6 @@ const RBAC_MATRIX: {
   },
   {
     role: 'Viewer',
-    pin: '3104',
     stationScope: 'Scoped / Read-Only',
     editVoters: 'Read-Only',
     unmaskPhone: 'Masked Only (98XXXXXX21)',
@@ -104,6 +98,8 @@ export default function UsersView() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState('');
+  const [pin, setPin] = useState('');
   const [role, setRole] = useState<UserRole>('Field Worker');
   const [selectedPsIds, setSelectedPsIds] = useState<string[]>(['ps-1']);
   const [selectedVillageIds, setSelectedVillageIds] = useState<string[]>(['vil-1']);
@@ -113,15 +109,19 @@ export default function UsersView() {
   const [editRole, setEditRole] = useState<UserRole>('Field Worker');
   const [editPsIds, setEditPsIds] = useState<string[]>(['ps-1']);
   const [editVillageIds, setEditVillageIds] = useState<string[]>(['vil-1']);
+  const [editPassword, setEditPassword] = useState('');
+  const [editPin, setEditPin] = useState('');
 
   const handleCreateUser = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !email.trim()) return;
+    if (!name.trim() || !email.trim() || !password.trim() || !pin.trim()) return;
     const isGlobalRole = role === 'Super Admin' || role === 'Admin/Coordinator';
     createUser({
       name: name.trim(),
       email: email.trim(),
       phone: phone.trim() || '9862000000',
+      password: password.trim(),
+      pin: pin.trim(),
       role,
       pollingStationIds: isGlobalRole ? ['ALL'] : selectedPsIds.length > 0 ? selectedPsIds : ['ps-1'],
       villageIds: isGlobalRole ? ['ALL'] : selectedVillageIds.length > 0 ? selectedVillageIds : ['vil-1'],
@@ -130,6 +130,8 @@ export default function UsersView() {
     setName('');
     setEmail('');
     setPhone('');
+    setPassword('');
+    setPin('');
   };
 
   const openEditModal = (u: AppUser) => {
@@ -137,6 +139,8 @@ export default function UsersView() {
     setEditRole(u.role);
     setEditPsIds(u.pollingStationIds.includes('ALL') ? ['ps-1', 'ps-2'] : u.pollingStationIds);
     setEditVillageIds(u.villageIds.includes('ALL') ? ['vil-1'] : u.villageIds);
+    setEditPassword(u.password || '');
+    setEditPin(u.pin || '');
   };
 
   const handleSaveRoleScope = (e: React.FormEvent) => {
@@ -147,6 +151,8 @@ export default function UsersView() {
       role: editRole,
       pollingStationIds: isGlobal ? ['ALL'] : editPsIds.length > 0 ? editPsIds : ['ps-1'],
       villageIds: isGlobal ? ['ALL'] : editVillageIds.length > 0 ? editVillageIds : ['vil-1'],
+      password: editPassword.trim() || undefined,
+      pin: editPin.trim() || undefined,
     });
     setEditingUser(null);
   };
@@ -188,8 +194,8 @@ export default function UsersView() {
               <KeyRound className="h-3.5 w-3.5 text-[#0071e3]" />
             </div>
             <div className="text-sm font-bold text-slate-900 dark:text-slate-100 mt-1">{currentUser.role}</div>
-            <div className="text-[11px] text-slate-500 font-mono mt-0.5">
-              Role PIN: {ROLE_DEFAULT_PINS[currentUser.role]}
+            <div className="text-[11px] text-slate-500 font-mono mt-0.5 truncate">
+              {currentUser.email}
             </div>
           </div>
 
@@ -243,7 +249,6 @@ export default function UsersView() {
             <thead>
               <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/70 text-[11px] font-semibold uppercase text-slate-500 dark:text-slate-400">
                 <th className="py-2.5 px-3">Role Tier</th>
-                <th className="py-2.5 px-3">Auth PIN</th>
                 <th className="py-2.5 px-3">Station Scope</th>
                 <th className="py-2.5 px-3">Voter Edits</th>
                 <th className="py-2.5 px-3">Phone PII</th>
@@ -274,7 +279,6 @@ export default function UsersView() {
                         )}
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 font-mono text-slate-700 dark:text-slate-300">{row.pin}</td>
                     <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300">{row.stationScope}</td>
                     <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300">{row.editVoters}</td>
                     <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300">{row.unmaskPhone}</td>
@@ -323,7 +327,7 @@ export default function UsersView() {
 
             <div>
               <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
-                Official Email (Used for Google OAuth & Role PIN Login)
+                Official Email (Used for Email &amp; Security PIN Login)
               </label>
               <input
                 type="email"
@@ -345,6 +349,34 @@ export default function UsersView() {
                 placeholder="9862XXXXXX"
                 className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 font-mono text-slate-900 dark:text-slate-100 disabled:bg-slate-50"
               />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">Password *</label>
+                <input
+                  type="password"
+                  required
+                  disabled={!canManageUsers}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Account password"
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 font-mono text-slate-900 dark:text-slate-100 disabled:bg-slate-50"
+                />
+              </div>
+              <div>
+                <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">Security PIN *</label>
+                <input
+                  type="password"
+                  required
+                  maxLength={6}
+                  disabled={!canManageUsers}
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value)}
+                  placeholder="4-digit PIN"
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 font-mono text-slate-900 dark:text-slate-100 disabled:bg-slate-50"
+                />
+              </div>
             </div>
 
             <div>
@@ -438,7 +470,7 @@ export default function UsersView() {
 
             <button
               type="submit"
-              disabled={!canManageUsers || !name.trim() || !email.trim()}
+              disabled={!canManageUsers || !name.trim() || !email.trim() || !password.trim() || !pin.trim()}
               className="w-full rounded-full bg-[#0071e3] py-2.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
             >
               Create Scoped User Account
@@ -463,7 +495,7 @@ export default function UsersView() {
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 text-[11px] font-semibold uppercase text-slate-500">
                   <th className="py-3 px-4">Official</th>
-                  <th className="py-3 px-3">Role & PIN</th>
+                  <th className="py-3 px-3">Role</th>
                   <th className="py-3 px-3">Polling Station Scope</th>
                   <th className="py-3 px-3">Status</th>
                   <th className="py-3 px-4 text-right">Actions</th>
@@ -487,9 +519,6 @@ export default function UsersView() {
                         <span className="inline-flex rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 font-semibold text-slate-800 dark:text-slate-200 text-[11px]">
                           {u.role}
                         </span>
-                        <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                          PIN: {ROLE_DEFAULT_PINS[u.role]}
-                        </div>
                       </td>
                       <td className="py-3 px-3 font-mono text-slate-700 dark:text-slate-300">
                         {u.pollingStationIds.includes('ALL')
@@ -590,6 +619,34 @@ export default function UsersView() {
                 <option value="Field Worker">Field Worker</option>
                 <option value="Viewer">Viewer (Read-Only)</option>
               </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Reset Password (Optional)
+                </label>
+                <input
+                  type="password"
+                  value={editPassword}
+                  onChange={(e) => setEditPassword(e.target.value)}
+                  placeholder="New password"
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 font-mono text-slate-900 dark:text-slate-100"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Reset 4-Digit PIN (Optional)
+                </label>
+                <input
+                  type="password"
+                  maxLength={6}
+                  value={editPin}
+                  onChange={(e) => setEditPin(e.target.value)}
+                  placeholder="New 4-digit PIN"
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 font-mono text-slate-900 dark:text-slate-100"
+                />
+              </div>
             </div>
 
             {editRole !== 'Super Admin' && editRole !== 'Admin/Coordinator' && (

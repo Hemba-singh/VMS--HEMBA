@@ -168,16 +168,16 @@ export default function VoterListView() {
 
   // Add Voter Form State
   const [newVoterForm, setNewVoterForm] = useState({
-    epicNo: 'MNP4089123',
+    epicNo: '',
     name: '',
     fatherName: '',
     motherName: '',
     spouseName: '',
     age: 26,
     gender: 'M' as Gender,
-    phone: '9862451092',
+    phone: '',
     villagePartId: villageParts[0]?.id || 'vp-1',
-    houseNo: 'H.No. 42/A',
+    houseNo: '',
     status: 'Pending' as VoterStatus,
     category: VoterCategory.Pending,
   });
@@ -1945,6 +1945,7 @@ export default function VoterListView() {
                   type="text"
                   value={newVoterForm.fatherName}
                   onChange={(e) => setNewVoterForm((p) => ({ ...p, fatherName: e.target.value }))}
+                  placeholder="e.g. Thokchom Ibohal Singh"
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
                 />
               </div>
@@ -1954,7 +1955,28 @@ export default function VoterListView() {
                   type="text"
                   value={newVoterForm.motherName}
                   onChange={(e) => setNewVoterForm((p) => ({ ...p, motherName: e.target.value }))}
+                  placeholder="e.g. Thokchom Jamuna Devi"
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                />
+              </div>
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">Spouse&apos;s Name (Optional)</label>
+                <input
+                  type="text"
+                  value={newVoterForm.spouseName}
+                  onChange={(e) => setNewVoterForm((p) => ({ ...p, spouseName: e.target.value }))}
+                  placeholder="e.g. Thokchom Ibemhal Devi"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                />
+              </div>
+              <div>
+                <label className="block font-medium text-slate-700 mb-1">House Number</label>
+                <input
+                  type="text"
+                  value={newVoterForm.houseNo}
+                  onChange={(e) => setNewVoterForm((p) => ({ ...p, houseNo: e.target.value }))}
+                  placeholder="e.g. H.No. 42/A"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 font-mono text-slate-900"
                 />
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -2040,28 +2062,43 @@ export default function VoterListView() {
                 disabled={!newVoterForm.name.trim() || !/^[A-Z]{3}[0-9]{7}$/.test(newVoterForm.epicNo)}
                 onClick={() => {
                   const vp = villageParts.find((p) => p.id === newVoterForm.villagePartId) || villageParts[0];
-                  const fam = families.find((f) => f.villagePartId === vp.id) || families[0];
+                  const houseNoVal = newVoterForm.houseNo.trim() || 'H.No. 1';
+                  const fam =
+                    families.find((f) => f.villagePartId === vp.id && f.address.startsWith(houseNoVal)) ||
+                    families.find((f) => f.villagePartId === vp.id);
+                  const targetFamilyId = fam ? fam.id : `fam-${vp.partNo}-${Date.now().toString().slice(-4)}`;
                   createVoter({
                     epicNo: newVoterForm.epicNo,
                     name: newVoterForm.name.trim(),
                     fatherName: newVoterForm.fatherName.trim() || 'Not Recorded',
                     motherName: newVoterForm.motherName.trim() || 'Not Recorded',
                     spouseName: newVoterForm.spouseName.trim() || undefined,
+                    houseNo: houseNoVal,
                     age: Math.max(18, newVoterForm.age),
                     gender: newVoterForm.gender,
                     phone: newVoterForm.phone,
-                    familyId: fam.id,
+                    familyId: targetFamilyId,
                     partNo: vp.partNo,
                     serialNo: voters.length + 1,
                     villageId: vp.villageId,
                     villagePartId: vp.id,
                     pollingStationId: vp.pollingStationId,
-                    addressId: `${newVoterForm.houseNo}, ${vp.name}`,
+                    addressId: `${houseNoVal}, ${vp.name}`,
                     status: newVoterForm.status,
                     category: newVoterForm.category,
                     tags: ['Manual Entry'],
-                    assignedWorkerId: 'usr-worker-1',
+                    assignedWorkerId: users[0]?.id || 'usr-super-admin',
                   });
+                  setNewVoterForm((p) => ({
+                    ...p,
+                    epicNo: '',
+                    name: '',
+                    fatherName: '',
+                    motherName: '',
+                    spouseName: '',
+                    phone: '',
+                    houseNo: '',
+                  }));
                   setShowAddVoterModal(false);
                 }}
                 className="rounded-full bg-[#0071e3] px-5 py-2 text-xs font-semibold text-white disabled:opacity-40"

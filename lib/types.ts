@@ -175,6 +175,8 @@ export interface User {
   name: string;
   email: string;
   phone?: string;
+  password?: string;
+  pin?: string;
   role: UserRole;
   pollingStationIds: string[]; // 'ALL' or ['ps-1', 'ps-2', ...]
   villageIds: string[]; // 'ALL' or ['vil-1', ...]

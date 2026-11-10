@@ -23,12 +23,10 @@ export default function SettingsView() {
     revealFullPhone,
     setRevealFullPhone,
     currentUser,
-    firebaseUser,
     isConnectedToFirestore,
     isSyncingFirestore,
     syncSeedDataToFirestore,
-    loginWithGoogle,
-    logoutFirebase,
+    lockSession,
     addCustomTag,
     restoreVoter,
   } = useVoterStore();
@@ -112,12 +110,12 @@ export default function SettingsView() {
           </div>
         </div>
 
-        {/* Card 2: Firebase Auth & Firestore Cloud Database */}
+        {/* Card 2: Role-Scoped Authentication & Firestore Cloud Database */}
         <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Database className="h-4 w-4 text-[#0071e3]" />
-              <h3 className="text-sm font-bold text-slate-900">Firebase Auth & Firestore Database Sync</h3>
+              <h3 className="text-sm font-bold text-slate-900">Email + Security PIN Auth &amp; Database Sync</h3>
             </div>
             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
               <CheckCircle2 className="h-3 w-3" />
@@ -126,37 +124,25 @@ export default function SettingsView() {
           </div>
 
           <p className="text-xs text-slate-600 leading-relaxed">
-            The system includes a deterministic 300-voter, 82-family, 41-polling-station seed dataset that runs immediately, plus live Firebase Authentication and Firestore sync.
+            Authenticated via Official Email (<span className="font-mono font-semibold">{currentUser.email}</span>) and 4-Digit Security PIN as <span className="font-semibold">{currentUser.role}</span> across 41 CEO Manipur Polling Stations (PS 1–41).
           </p>
 
           <div className="flex flex-wrap items-center gap-2.5 pt-1">
-            {!firebaseUser ? (
-              <button
-                type="button"
-                onClick={loginWithGoogle}
-                className="rounded-full bg-[#0071e3] px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700"
-              >
-                Sign In with Google (Firebase Auth)
-              </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  disabled={isSyncingFirestore}
-                  onClick={syncSeedDataToFirestore}
-                  className="rounded-full bg-[#0071e3] px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {isSyncingFirestore ? 'Syncing Master Data...' : 'Sync Master Hierarchy to Firestore'}
-                </button>
-                <button
-                  type="button"
-                  onClick={logoutFirebase}
-                  className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Sign Out ({firebaseUser.email})
-                </button>
-              </>
-            )}
+            <button
+              type="button"
+              disabled={isSyncingFirestore}
+              onClick={syncSeedDataToFirestore}
+              className="rounded-full bg-[#0071e3] px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {isSyncingFirestore ? 'Syncing Master Data...' : 'Sync Master Hierarchy to Firestore'}
+            </button>
+            <button
+              type="button"
+              onClick={lockSession}
+              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Sign Out ({currentUser.email})
+            </button>
           </div>
         </div>
 

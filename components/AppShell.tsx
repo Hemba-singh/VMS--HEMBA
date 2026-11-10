@@ -17,7 +17,6 @@ import {
   EyeOff,
   Menu,
   X,
-  LogIn,
   LogOut,
   Check,
   PanelLeftClose,
@@ -33,7 +32,7 @@ import {
   Lock,
   KeyRound,
 } from 'lucide-react';
-import { useStore, matchesFuzzyQuery, SearchScope, ROLE_DEFAULT_PINS } from '@/lib/store-context';
+import { useStore, matchesFuzzyQuery, SearchScope } from '@/lib/store-context';
 import { NavigationTab, Voter } from '@/lib/types';
 import dynamic from 'next/dynamic';
 import VoterListView from './VoterListView';
@@ -97,12 +96,10 @@ export default function AppShell() {
     scopedFamilies,
     scopedPollingStations,
     switchActiveUserRole,
+    isAuthenticated,
     isSessionLocked,
     lockSession,
     authenticateWithRoleCredentials,
-    firebaseUser,
-    loginWithGoogle,
-    logoutFirebase,
     tasks,
     voterNotifications,
     exportRequests,
@@ -117,14 +114,17 @@ export default function AppShell() {
   } = useStore();
 
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [authEmail, setAuthEmail] = useState(currentUser.email);
-  const [authPin, setAuthPin] = useState(ROLE_DEFAULT_PINS[currentUser.role] || '3100');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authPin, setAuthPin] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPin, setShowPin] = useState(false);
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const handleAuthGateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    authenticateWithRoleCredentials(authEmail, authPin);
+    authenticateWithRoleCredentials(authEmail, authPassword, authPin);
   };
 
   // Keyboard shortcut listener (⌘K / Ctrl+K or / to focus search, Escape to close)
@@ -212,6 +212,213 @@ export default function AppShell() {
     if (id === 'users') return users.length;
     return null;
   };
+
+  // Authentication State Guard: Redirect unauthorized users to the Login Screen and display application content ONLY for authenticated users
+  if (!isAuthenticated || isSessionLocked || !currentUser?.active) {
+    return (
+      <div className="min-h-screen w-full flex flex-col justify-between bg-[#0b192c] text-white selection:bg-[#0071e3] selection:text-white">
+        {/* Top Portal Header */}
+        <header className="w-full max-w-6xl mx-auto px-6 py-5 flex items-center justify-between border-b border-white/10">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-2xl bg-[#0071e3] flex items-center justify-center shadow-lg">
+              <Shield className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-widest text-blue-400">
+                MANIPUR · 31-THOUBAL ASSEMBLY CONSTITUENCY
+              </div>
+              <div className="text-sm sm:text-base font-bold tracking-tight text-white">
+                AC-31 Thoubal Voter List Management System
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={cycleThemeMode}
+              title={`Theme: ${themeMode}`}
+              className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-white/10 transition-colors"
+            >
+              {resolvedTheme === 'dark' ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
+              <span className="hidden sm:inline capitalize">{themeMode}</span>
+            </button>
+          </div>
+        </header>
+
+        {/* Center Authentication Grid */}
+        <main className="flex-1 flex items-center justify-center px-4 py-8 sm:px-6">
+          <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+            {/* Left Column: Security & Booth Isolation Overview */}
+            <div className="lg:col-span-5 space-y-5 text-left">
+              <div className="inline-flex items-center gap-2 rounded-full border border-blue-400/30 bg-blue-500/10 px-3.5 py-1 text-xs font-semibold text-blue-300">
+                <Lock className="h-3.5 w-3.5" />
+                <span>Mandatory Email &amp; Security PIN Authentication</span>
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white leading-tight">
+                Sign in to access AC-31 Thoubal Electoral Records
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                All voter roll records, household trees, GIS coordinates, and field workflows across the 41 official CEO Manipur Polling Stations (PS 1–41) are protected by role-scoped authentication.
+              </p>
+
+              <div className="space-y-3 pt-1 text-xs">
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-3.5 flex items-start gap-3">
+                  <MapPin className="h-4 w-4 text-blue-400 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-semibold text-white">Polling Station Scope Isolation (PS 1–41)</div>
+                    <p className="text-slate-400 text-[11px] mt-0.5">
+                      Booth Incharges and Field Workers only see voters, households, and tasks assigned to their authorized polling station(s).
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-3.5 flex items-start gap-3">
+                  <EyeOff className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-semibold text-white">Voter PII &amp; Phone Number Masking</div>
+                    <p className="text-slate-400 text-[11px] mt-0.5">
+                      Phone numbers remain masked (`98XXXXXX21`) by default. Unmasking and CSV exports are restricted by role and logged to the Audit Trail.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column: Official Email + Password + Security PIN Login Card */}
+            <div className="lg:col-span-7">
+              <div className="rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1c1c1e] text-slate-900 dark:text-slate-100 p-6 sm:p-7 shadow-2xl space-y-5 text-xs">
+                <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-4">
+                  <div>
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-[#0071e3]">
+                      OFFICIAL LOGIN PORTAL · EMAIL, PASSWORD &amp; PIN
+                    </div>
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-slate-100 mt-0.5">
+                      Authenticate Your Constituency Session
+                    </h2>
+                  </div>
+                  <span className="rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 px-3 py-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">
+                    41 Booths Protected
+                  </span>
+                </div>
+
+                {/* Official Email + Password + Role Security PIN Form */}
+                <form onSubmit={handleAuthGateSubmit} className="space-y-3.5">
+                  <div>
+                    <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Official Email Address
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      value={authEmail}
+                      onChange={(e) => setAuthEmail(e.target.value)}
+                      placeholder="Enter official email address"
+                      className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3.5 py-2.5 font-mono text-slate-900 dark:text-slate-100 focus:border-[#0071e3] focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      Account Password
+                    </label>
+                    <div className="relative flex items-center">
+                      <Lock className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        required
+                        value={authPassword}
+                        onChange={(e) => setAuthPassword(e.target.value)}
+                        placeholder="Enter account password"
+                        className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 pl-10 pr-16 py-2.5 font-mono text-slate-900 dark:text-slate-100 focus:border-[#0071e3] focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((prev) => !prev)}
+                        className="absolute right-3 text-[11px] font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                      >
+                        {showPassword ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                      4-Digit Role Security PIN
+                    </label>
+                    <div className="relative flex items-center">
+                      <KeyRound className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                      <input
+                        type={showPin ? 'text' : 'password'}
+                        required
+                        value={authPin}
+                        onChange={(e) => setAuthPin(e.target.value)}
+                        placeholder="Enter 4-digit Security PIN"
+                        className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 pl-10 pr-16 py-2.5 font-mono text-slate-900 dark:text-slate-100 focus:border-[#0071e3] focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPin((prev) => !prev)}
+                        className="absolute right-3 text-[11px] font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                      >
+                        {showPin ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full rounded-full bg-[#0071e3] py-3 text-xs font-bold text-white hover:bg-blue-700 transition-colors shadow-sm"
+                  >
+                    Sign In to AC-31 Thoubal Portal
+                  </button>
+                </form>
+
+                <div className="border-t border-slate-200 dark:border-slate-800 pt-3.5 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
+                  <span>Authorized Constituency Personnel Only</span>
+                  <span className="font-mono text-[10px]">Multi-Factor · DPDP 2023</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </main>
+
+        {/* Footer */}
+        <footer className="w-full max-w-6xl mx-auto px-6 py-4 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+          <span>31-Thoubal Assembly Constituency · Electoral Roll & Booth Management</span>
+          <span className="font-mono">RBAC v2.4 · 41 Polling Stations</span>
+        </footer>
+
+        {/* Bottom-Center Toast Notifications on Login Screen */}
+        {toasts.length > 0 && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2.5 w-full max-w-md px-4 pointer-events-none">
+            {toasts.map((t) => (
+              <div
+                key={t.id}
+                className={`pointer-events-auto flex items-center justify-between gap-3 rounded-[20px] border px-5 py-3.5 shadow-lg text-[14px] ${
+                  t.variant === 'danger'
+                    ? 'bg-[#ff3b30] border-[#ff3b30] text-white'
+                    : 'bg-[#1d1d1f] border-[#38383a] text-[#f5f5f7]'
+                }`}
+              >
+                <div>
+                  <div className="font-semibold">{t.title}</div>
+                  {t.description && <div className="text-[13px] text-[#a1a1a6] mt-0.5">{t.description}</div>}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => dismissToast(t.id)}
+                  className="text-[#a1a1a6] hover:text-white"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen overflow-hidden flex bg-[#f5f5f7] dark:bg-[#000000] text-[#1d1d1f] dark:text-[#f5f5f7] transition-colors duration-200">
@@ -819,46 +1026,21 @@ export default function AppShell() {
                     </div>
                   </div>
 
-                  {/* Lock Session & Firebase Auth Actions */}
+                  {/* Sign Out / Lock Session Action */}
                   <div className="border-t border-slate-100 pt-2 space-y-1.5">
                     <button
                       type="button"
                       onClick={() => {
-                        setAuthEmail(currentUser.email);
-                        setAuthPin(ROLE_DEFAULT_PINS[currentUser.role] || '3100');
+                        setAuthPassword('');
+                        setAuthPin('');
+                        setShowUserMenu(false);
                         lockSession();
                       }}
-                      className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                      className="w-full flex items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
                     >
-                      <Lock className="h-3.5 w-3.5" />
-                      <span>Lock Session / Role PIN Auth</span>
+                      <LogOut className="h-3.5 w-3.5" />
+                      <span>Sign Out (Return to Login Screen)</span>
                     </button>
-
-                    {!firebaseUser ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowUserMenu(false);
-                          loginWithGoogle();
-                        }}
-                        className="w-full flex items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
-                      >
-                        <LogIn className="h-3.5 w-3.5" />
-                        <span>Sign in with Google OAuth</span>
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowUserMenu(false);
-                          logoutFirebase();
-                        }}
-                        className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                      >
-                        <LogOut className="h-3.5 w-3.5" />
-                        <span>Sign out ({firebaseUser.email})</span>
-                      </button>
-                    )}
                   </div>
                 </div>
               )}
@@ -906,127 +1088,6 @@ export default function AppShell() {
           </div>
         </main>
       </div>
-
-      {/* Role-Based Authentication Gate Overlay (when session is locked) */}
-      {isSessionLocked && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4">
-          <div className="w-full max-w-lg rounded-3xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1c1c1e] p-6 shadow-2xl space-y-5 text-xs">
-            <div className="flex items-start justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="h-11 w-11 rounded-2xl bg-[#0b192c] text-white flex items-center justify-center shrink-0">
-                  <Shield className="h-6 w-6 text-blue-400" />
-                </div>
-                <div>
-                  <div className="text-[11px] font-bold uppercase tracking-wider text-[#0071e3]">
-                    AC-31 THOUBAL · DATA PROTECTION GATE
-                  </div>
-                  <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 mt-0.5">
-                    Role-Based Authentication & Booth Isolation
-                  </h2>
-                  <p className="text-[11px] text-slate-500">
-                    Authenticate with Official Email + Role PIN or Google OAuth to unlock scoped electoral data.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Official Email + Role PIN Form */}
-            <form onSubmit={handleAuthGateSubmit} className="space-y-3">
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Official Email Address
-                </label>
-                <input
-                  type="email"
-                  required
-                  value={authEmail}
-                  onChange={(e) => setAuthEmail(e.target.value)}
-                  placeholder="e.g. sanasamhembasingh@gmail.com"
-                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3.5 py-2.5 font-mono text-slate-900 dark:text-slate-100 focus:border-[#0071e3] focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Role Security PIN
-                </label>
-                <div className="relative">
-                  <KeyRound className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                  <input
-                    type="password"
-                    required
-                    value={authPin}
-                    onChange={(e) => setAuthPin(e.target.value)}
-                    placeholder="Enter 4-digit Role PIN (e.g. 3100)"
-                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 pl-10 pr-3.5 py-2.5 font-mono text-slate-900 dark:text-slate-100 focus:border-[#0071e3] focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 pt-1">
-                <button
-                  type="submit"
-                  className="flex-1 rounded-full bg-[#0071e3] py-2.5 text-xs font-semibold text-white hover:bg-blue-700 transition-colors"
-                >
-                  Authenticate & Unlock Scoped Session
-                </button>
-                <button
-                  type="button"
-                  onClick={loginWithGoogle}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-full bg-slate-900 dark:bg-white px-4 py-2.5 text-xs font-semibold text-white dark:text-slate-900 hover:opacity-90"
-                >
-                  <LogIn className="h-3.5 w-3.5" />
-                  <span>Google OAuth</span>
-                </button>
-              </div>
-            </form>
-
-            {/* Quick Select Registered Role Accounts */}
-            <div className="border-t border-slate-200 dark:border-slate-800 pt-3 space-y-2">
-              <div className="text-[11px] font-semibold text-slate-500 flex items-center justify-between">
-                <span>Quick-Fill Registered Officials (Click to Load Credentials)</span>
-                <span className="font-mono text-[10px] text-slate-400">PINs: 3100–3104</span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-44 overflow-y-auto pr-1">
-                {users
-                  .filter((u) => u.active)
-                  .map((u) => {
-                    const pin = ROLE_DEFAULT_PINS[u.role] || '3100';
-                    const isSelected = authEmail.toLowerCase() === u.email.toLowerCase();
-                    return (
-                      <button
-                        key={u.id}
-                        type="button"
-                        onClick={() => {
-                          setAuthEmail(u.email);
-                          setAuthPin(pin);
-                        }}
-                        className={`text-left rounded-xl border p-2 transition-colors ${
-                          isSelected
-                            ? 'border-[#0071e3] bg-blue-50/70 dark:bg-blue-950/40'
-                            : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900'
-                        }`}
-                      >
-                        <div className="font-semibold text-slate-900 dark:text-slate-100 truncate">
-                          {u.name}
-                        </div>
-                        <div className="flex items-center justify-between text-[10px] text-slate-500 mt-0.5">
-                          <span className="text-[#0071e3] font-medium">{u.role}</span>
-                          <span className="font-mono">
-                            {u.pollingStationIds.includes('ALL')
-                              ? 'PS 1–41'
-                              : u.pollingStationIds.map((p) => p.toUpperCase()).join(', ')}{' '}
-                            · PIN {pin}
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  })}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Bottom-Center Toast Notifications */}
       {toasts.length > 0 && (
