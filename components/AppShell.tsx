@@ -18,7 +18,7 @@ import {
   Menu,
   X,
   LogOut,
-  Check,
+  AlertCircle,
   PanelLeftClose,
   PanelLeftOpen,
   Sun,
@@ -95,9 +95,11 @@ export default function AppShell() {
     voters,
     scopedFamilies,
     scopedPollingStations,
-    switchActiveUserRole,
     isAuthenticated,
     isSessionLocked,
+    isAuthHydrated,
+    authError,
+    clearAuthError,
     lockSession,
     authenticateWithRoleCredentials,
     tasks,
@@ -109,6 +111,7 @@ export default function AppShell() {
     setRevealFullPhone,
     canUnmaskPhone,
     canImportData,
+    canAccessTab,
     toasts,
     dismissToast,
   } = useStore();
@@ -124,7 +127,11 @@ export default function AppShell() {
 
   const handleAuthGateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    authenticateWithRoleCredentials(authEmail, authPassword, authPin);
+    const ok = authenticateWithRoleCredentials(authEmail, authPassword, authPin);
+    if (ok) {
+      setAuthPassword('');
+      setAuthPin('');
+    }
   };
 
   // Keyboard shortcut listener (⌘K / Ctrl+K or / to focus search, Escape to close)
@@ -212,6 +219,20 @@ export default function AppShell() {
     if (id === 'users') return users.length;
     return null;
   };
+
+  // Prevent login flash while hydrating persisted session on client mount
+  if (!isAuthHydrated) {
+    return (
+      <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#0b192c] text-white gap-3">
+        <div className="h-11 w-11 rounded-2xl bg-[#0071e3] flex items-center justify-center shadow-lg">
+          <Shield className="h-5 w-5 text-white" />
+        </div>
+        <div className="text-xs font-medium text-slate-300 tracking-wide">
+          Restoring AC-31 Thoubal Security Session...
+        </div>
+      </div>
+    );
+  }
 
   // Authentication State Guard: Redirect unauthorized users to the Login Screen and display application content ONLY for authenticated users
   if (!isAuthenticated || isSessionLocked || !currentUser?.active) {
@@ -302,6 +323,19 @@ export default function AppShell() {
                   </span>
                 </div>
 
+                {authError && (
+                  <div
+                    role="alert"
+                    className="rounded-xl border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/40 px-3.5 py-2.5 flex items-start gap-2.5 text-red-700 dark:text-red-300"
+                  >
+                    <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-red-600 dark:text-red-400" />
+                    <div className="space-y-0.5">
+                      <div className="font-semibold text-xs">Authentication Verification Failed</div>
+                      <p className="text-[11px] leading-relaxed">{authError.message}</p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Official Email + Password + Role Security PIN Form */}
                 <form onSubmit={handleAuthGateSubmit} className="space-y-3.5">
                   <div>
@@ -311,10 +345,18 @@ export default function AppShell() {
                     <input
                       type="email"
                       required
+                      autoComplete="username"
                       value={authEmail}
-                      onChange={(e) => setAuthEmail(e.target.value)}
+                      onChange={(e) => {
+                        setAuthEmail(e.target.value);
+                        if (authError) clearAuthError();
+                      }}
                       placeholder="Enter official email address"
-                      className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-3.5 py-2.5 font-mono text-slate-900 dark:text-slate-100 focus:border-[#0071e3] focus:outline-none"
+                      className={`w-full rounded-xl border ${
+                        authError?.field === 'email' || authError?.field === 'account'
+                          ? 'border-red-500 focus:border-red-600'
+                          : 'border-slate-300 dark:border-slate-700 focus:border-[#0071e3]'
+                      } bg-slate-50 dark:bg-slate-900 px-3.5 py-2.5 font-mono text-slate-900 dark:text-slate-100 focus:outline-none`}
                     />
                   </div>
 
@@ -327,10 +369,18 @@ export default function AppShell() {
                       <input
                         type={showPassword ? 'text' : 'password'}
                         required
+                        autoComplete="current-password"
                         value={authPassword}
-                        onChange={(e) => setAuthPassword(e.target.value)}
+                        onChange={(e) => {
+                          setAuthPassword(e.target.value);
+                          if (authError) clearAuthError();
+                        }}
                         placeholder="Enter account password"
-                        className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 pl-10 pr-16 py-2.5 font-mono text-slate-900 dark:text-slate-100 focus:border-[#0071e3] focus:outline-none"
+                        className={`w-full rounded-xl border ${
+                          authError?.field === 'password'
+                            ? 'border-red-500 focus:border-red-600'
+                            : 'border-slate-300 dark:border-slate-700 focus:border-[#0071e3]'
+                        } bg-slate-50 dark:bg-slate-900 pl-10 pr-16 py-2.5 font-mono text-slate-900 dark:text-slate-100 focus:outline-none`}
                       />
                       <button
                         type="button"
@@ -350,11 +400,20 @@ export default function AppShell() {
                       <KeyRound className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                       <input
                         type={showPin ? 'text' : 'password'}
+                        inputMode="numeric"
+                        maxLength={6}
                         required
                         value={authPin}
-                        onChange={(e) => setAuthPin(e.target.value)}
+                        onChange={(e) => {
+                          setAuthPin(e.target.value.replace(/[^0-9]/g, ''));
+                          if (authError) clearAuthError();
+                        }}
                         placeholder="Enter 4-digit Security PIN"
-                        className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 pl-10 pr-16 py-2.5 font-mono text-slate-900 dark:text-slate-100 focus:border-[#0071e3] focus:outline-none"
+                        className={`w-full rounded-xl border ${
+                          authError?.field === 'pin'
+                            ? 'border-red-500 focus:border-red-600'
+                            : 'border-slate-300 dark:border-slate-700 focus:border-[#0071e3]'
+                        } bg-slate-50 dark:bg-slate-900 pl-10 pr-16 py-2.5 font-mono tabular-nums tracking-widest text-slate-900 dark:text-slate-100 focus:outline-none`}
                       />
                       <button
                         type="button"
@@ -375,7 +434,7 @@ export default function AppShell() {
                 </form>
 
                 <div className="border-t border-slate-200 dark:border-slate-800 pt-3.5 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                  <span>Authorized Constituency Personnel Only</span>
+                  <span>Session Persists Until Explicit Sign-Out</span>
                   <span className="font-mono text-[10px]">Multi-Factor · DPDP 2023</span>
                 </div>
               </div>
@@ -481,7 +540,7 @@ export default function AppShell() {
 
           {/* Sidebar Navigation Links */}
           <nav className="flex-1 overflow-y-auto p-3 space-y-1.5">
-            {NAV_ITEMS.map((item) => {
+            {NAV_ITEMS.filter((item) => canAccessTab(item.id)).map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
               const badge = getNavBadge(item.id);
@@ -973,13 +1032,13 @@ export default function AppShell() {
               </button>
 
               {showUserMenu && (
-                <div className="absolute right-0 mt-2 w-72 rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xl space-y-3 z-50 text-xs">
-                  <div className="border-b border-slate-100 pb-2.5">
-                    <div className="font-bold text-slate-900">{currentUser.name}</div>
-                    <div className="text-[11px] text-slate-500">{currentUser.email}</div>
+                <div className="absolute right-0 mt-2 w-72 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#1c1c1e] p-3.5 shadow-xl space-y-3 z-50 text-xs">
+                  <div className="border-b border-slate-100 dark:border-slate-800 pb-2.5">
+                    <div className="font-bold text-slate-900 dark:text-slate-100">{currentUser.name}</div>
+                    <div className="text-[11px] text-slate-500 font-mono truncate">{currentUser.email}</div>
                     <div className="mt-1.5 flex items-center justify-between text-[11px]">
                       <span className="font-semibold text-[#0071e3]">{currentUser.role}</span>
-                      <span className="font-mono text-slate-500">
+                      <span className="font-mono text-slate-500 tabular-nums">
                         {currentUser.pollingStationIds.includes('ALL')
                           ? 'PS 1–41'
                           : `${currentUser.pollingStationIds.length} Booths`}
@@ -987,47 +1046,31 @@ export default function AppShell() {
                     </div>
                   </div>
 
-                  {/* Role Switcher */}
-                  <div className="space-y-1">
-                    <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 px-2">
-                      Switch Active Role (RBAC Scope)
+                  <div className="rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 p-2.5 space-y-1 text-[11px]">
+                    <div className="flex items-center justify-between text-slate-700 dark:text-slate-300">
+                      <span className="font-medium">Session Persistence</span>
+                      <span className="font-semibold text-emerald-700 dark:text-emerald-400">Active</span>
                     </div>
-                    <div className="max-h-48 overflow-y-auto space-y-0.5">
-                      {users.map((u) => {
-                        const active = u.id === currentUser.id;
-                        return (
-                          <button
-                            key={u.id}
-                            type="button"
-                            disabled={!u.active}
-                            onClick={() => {
-                              switchActiveUserRole(u.id);
-                              setShowUserMenu(false);
-                            }}
-                            className={`w-full text-left rounded-xl px-2.5 py-1.5 flex items-center justify-between transition-colors disabled:opacity-40 ${
-                              active
-                                ? 'bg-blue-50 text-[#0071e3] font-semibold'
-                                : 'text-slate-700 hover:bg-slate-50'
-                            }`}
-                          >
-                            <div className="truncate pr-2">
-                              <div className="truncate">{u.name}</div>
-                              <div className="text-[10px] text-slate-400">
-                                {u.role} ·{' '}
-                                {u.pollingStationIds.includes('ALL')
-                                  ? 'All 41 PS'
-                                  : u.pollingStationIds.map((p) => p.toUpperCase()).join(', ')}
-                              </div>
-                            </div>
-                            {active && <Check className="h-3.5 w-3.5 text-[#0071e3] shrink-0" />}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <p className="text-slate-500 dark:text-slate-400 leading-snug">
+                      To switch to another official account, sign out and authenticate with that official&apos;s Email, Password, and 4-Digit PIN.
+                    </p>
                   </div>
 
-                  {/* Sign Out / Lock Session Action */}
-                  <div className="border-t border-slate-100 pt-2 space-y-1.5">
+                  {/* Sign Out / Switch Account Action */}
+                  <div className="border-t border-slate-100 dark:border-slate-800 pt-2 space-y-1.5">
+                    {(currentUser.role === 'Super Admin' || currentUser.role === 'Admin/Coordinator') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab('users');
+                          setShowUserMenu(false);
+                        }}
+                        className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800"
+                      >
+                        <UserCog className="h-3.5 w-3.5" />
+                        <span>Manage Official Accounts ({users.length})</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => {
@@ -1036,10 +1079,10 @@ export default function AppShell() {
                         setShowUserMenu(false);
                         lockSession();
                       }}
-                      className="w-full flex items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+                      className="w-full flex items-center justify-center gap-1.5 rounded-xl bg-slate-900 dark:bg-white px-3 py-2 text-xs font-semibold text-white dark:text-slate-900 hover:opacity-90"
                     >
                       <LogOut className="h-3.5 w-3.5" />
-                      <span>Sign Out (Return to Login Screen)</span>
+                      <span>Sign Out &amp; Switch Account</span>
                     </button>
                   </div>
                 </div>
@@ -1055,7 +1098,7 @@ export default function AppShell() {
             {activeTab === 'family-view' && <FamilyView />}
             {activeTab === 'villages-stations' && <VillagesStationsView />}
             {activeTab === 'maps' && <MapsView />}
-            {activeTab === 'import-data' && (
+            {activeTab === 'import-data' && canAccessTab('import-data') && (
               <>
                 {!canImportData && (
                   <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 flex flex-wrap items-center justify-between gap-3 text-xs text-amber-900">
@@ -1083,8 +1126,8 @@ export default function AppShell() {
               </>
             )}
             {activeTab === 'reports' && <ReportsView />}
-            {activeTab === 'users' && <UsersView />}
-            {activeTab === 'settings' && <SettingsView />}
+            {activeTab === 'users' && canAccessTab('users') && <UsersView />}
+            {activeTab === 'settings' && canAccessTab('settings') && <SettingsView />}
           </div>
         </main>
       </div>

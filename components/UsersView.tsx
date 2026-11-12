@@ -35,7 +35,7 @@ const RBAC_MATRIX: {
     importRollback: 'Allowed',
     exportData: 'Auto-Approved',
     deleteRestore: 'Soft-Delete & Restore',
-    manageUsers: 'Full RBAC Control',
+    manageUsers: 'All Roles (Incl. Admins)',
   },
   {
     role: 'Admin/Coordinator',
@@ -45,51 +45,61 @@ const RBAC_MATRIX: {
     importRollback: 'Allowed',
     exportData: 'Approve & Export',
     deleteRestore: 'Soft-Delete Only',
-    manageUsers: 'Create & Scope Users',
+    manageUsers: 'Incharge, Worker & Viewer Only',
   },
   {
     role: 'Polling Station Incharge',
     stationScope: 'Assigned Booths Only',
     editVoters: 'Scoped Booths Only',
     unmaskPhone: 'Scoped Booths Only',
-    importRollback: 'Blocked',
+    importRollback: 'Hidden / Blocked',
     exportData: 'Requires Admin Approval',
     deleteRestore: 'Blocked',
-    manageUsers: 'Booth Team Only',
+    manageUsers: 'Hidden / Blocked',
   },
   {
     role: 'Field Worker',
     stationScope: 'Assigned Booths / Households',
     editVoters: 'Assigned Booths Only',
     unmaskPhone: 'Masked Only (98XXXXXX21)',
-    importRollback: 'Blocked',
+    importRollback: 'Hidden / Blocked',
     exportData: 'Blocked',
     deleteRestore: 'Blocked',
-    manageUsers: 'Blocked',
+    manageUsers: 'Hidden / Blocked',
   },
   {
     role: 'Viewer',
     stationScope: 'Scoped / Read-Only',
     editVoters: 'Read-Only',
     unmaskPhone: 'Masked Only (98XXXXXX21)',
-    importRollback: 'Blocked',
+    importRollback: 'Hidden / Blocked',
     exportData: 'Blocked',
     deleteRestore: 'Blocked',
-    manageUsers: 'Blocked',
+    manageUsers: 'Hidden / Blocked',
   },
+];
+
+const ALL_ROLE_OPTIONS: { value: UserRole; label: string }[] = [
+  { value: 'Super Admin', label: 'Super Admin (All 41 Booths)' },
+  { value: 'Admin/Coordinator', label: 'Admin/Coordinator (All 41 Booths)' },
+  { value: 'Polling Station Incharge', label: 'Polling Station Incharge (Scoped Booths)' },
+  { value: 'Field Worker', label: 'Field Worker (Scoped Booths)' },
+  { value: 'Viewer', label: 'Viewer (Read-Only)' },
 ];
 
 export default function UsersView() {
   const {
     users,
-    villages,
+    allVillages: villages,
+    allVillageParts: villageParts,
     pollingStations,
     currentUser,
     voters,
     scopedPollingStations,
-    switchActiveUserRole,
     lockSession,
     canManageUsers,
+    canManageRole,
+    canEditUserAccount,
     createUser,
     toggleUserActive,
     updateUserRoleScope,
@@ -115,7 +125,19 @@ export default function UsersView() {
   const handleCreateUser = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !email.trim() || !password.trim() || !pin.trim()) return;
+    if (!canManageRole(role)) return;
     const isGlobalRole = role === 'Super Admin' || role === 'Admin/Coordinator';
+    const resolvedPsIds = isGlobalRole ? ['ALL'] : selectedPsIds.length > 0 ? selectedPsIds : ['ps-1'];
+    const derivedVillageIds =
+      isGlobalRole || resolvedPsIds.includes('ALL')
+        ? ['ALL']
+        : Array.from(
+            new Set(
+              villageParts
+                .filter((vp) => resolvedPsIds.includes(vp.pollingStationId))
+                .map((vp) => vp.villageId)
+            )
+          );
     createUser({
       name: name.trim(),
       email: email.trim(),
@@ -123,8 +145,8 @@ export default function UsersView() {
       password: password.trim(),
       pin: pin.trim(),
       role,
-      pollingStationIds: isGlobalRole ? ['ALL'] : selectedPsIds.length > 0 ? selectedPsIds : ['ps-1'],
-      villageIds: isGlobalRole ? ['ALL'] : selectedVillageIds.length > 0 ? selectedVillageIds : ['vil-1'],
+      pollingStationIds: resolvedPsIds,
+      villageIds: derivedVillageIds.length > 0 ? derivedVillageIds : selectedVillageIds,
       active: true,
     });
     setName('');
@@ -135,6 +157,7 @@ export default function UsersView() {
   };
 
   const openEditModal = (u: AppUser) => {
+    if (!canEditUserAccount(u)) return;
     setEditingUser(u);
     setEditRole(u.role);
     setEditPsIds(u.pollingStationIds.includes('ALL') ? ['ps-1', 'ps-2'] : u.pollingStationIds);
@@ -146,11 +169,23 @@ export default function UsersView() {
   const handleSaveRoleScope = (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
+    if (!canEditUserAccount(editingUser) || !canManageRole(editRole)) return;
     const isGlobal = editRole === 'Super Admin' || editRole === 'Admin/Coordinator';
+    const resolvedPsIds = isGlobal ? ['ALL'] : editPsIds.length > 0 ? editPsIds : ['ps-1'];
+    const derivedVillageIds =
+      isGlobal || resolvedPsIds.includes('ALL')
+        ? ['ALL']
+        : Array.from(
+            new Set(
+              villageParts
+                .filter((vp) => resolvedPsIds.includes(vp.pollingStationId))
+                .map((vp) => vp.villageId)
+            )
+          );
     updateUserRoleScope(editingUser.id, {
       role: editRole,
-      pollingStationIds: isGlobal ? ['ALL'] : editPsIds.length > 0 ? editPsIds : ['ps-1'],
-      villageIds: isGlobal ? ['ALL'] : editVillageIds.length > 0 ? editVillageIds : ['vil-1'],
+      pollingStationIds: resolvedPsIds,
+      villageIds: derivedVillageIds.length > 0 ? derivedVillageIds : editVillageIds,
       password: editPassword.trim() || undefined,
       pin: editPin.trim() || undefined,
     });
@@ -255,6 +290,7 @@ export default function UsersView() {
                 <th className="py-2.5 px-3">Import / Rollback</th>
                 <th className="py-2.5 px-3">CSV Export</th>
                 <th className="py-2.5 px-3">Delete / Restore</th>
+                <th className="py-2.5 px-3">User Admin</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
@@ -285,6 +321,7 @@ export default function UsersView() {
                     <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300">{row.importRollback}</td>
                     <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300">{row.exportData}</td>
                     <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300">{row.deleteRestore}</td>
+                    <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300">{row.manageUsers}</td>
                   </tr>
                 );
               })}
@@ -387,23 +424,39 @@ export default function UsersView() {
                 onChange={(e) => setRole(e.target.value as UserRole)}
                 className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 font-semibold text-slate-900 dark:text-slate-100 disabled:bg-slate-50"
               >
-                <option value="Super Admin">Super Admin (All 41 Booths)</option>
-                <option value="Admin/Coordinator">Admin/Coordinator (All 41 Booths)</option>
-                <option value="Polling Station Incharge">Polling Station Incharge (Scoped Booths)</option>
-                <option value="Field Worker">Field Worker (Scoped Booths)</option>
-                <option value="Viewer">Viewer (Read-Only)</option>
+                {ALL_ROLE_OPTIONS.filter((opt) => canManageRole(opt.value)).map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
+              {currentUser.role === 'Admin/Coordinator' && (
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Note: Only Super Admin can create Super Admin or Admin/Coordinator accounts.
+                </p>
+              )}
             </div>
 
             {(role === 'Polling Station Incharge' || role === 'Field Worker' || role === 'Viewer') && (
               <>
                 <div>
                   <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Assigned Village Scope
+                    Filter Booths by Village
                   </label>
                   <select
-                    value={selectedVillageIds[0] || 'vil-1'}
-                    onChange={(e) => setSelectedVillageIds([e.target.value])}
+                    value={selectedVillageIds[0] || 'ALL'}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSelectedVillageIds([val]);
+                      if (val !== 'ALL') {
+                        const vilBooths = villageParts
+                          .filter((vp) => vp.villageId === val)
+                          .map((vp) => vp.pollingStationId);
+                        if (vilBooths.length > 0) {
+                          setSelectedPsIds(vilBooths);
+                        }
+                      }
+                    }}
                     className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-slate-900 dark:text-slate-100"
                   >
                     <option value="ALL">All {villages.length} Villages</option>
@@ -537,19 +590,22 @@ export default function UsersView() {
                         )}
                       </td>
                       <td className="py-3 px-4 text-right whitespace-nowrap space-x-1.5">
-                        <button
-                          type="button"
-                          onClick={() => switchActiveUserRole(u.id)}
-                          disabled={!u.active}
-                          className={`rounded-full px-3 py-1 text-[11px] font-semibold transition-colors ${
-                            isCurrent
-                              ? 'bg-emerald-600 text-white'
-                              : 'border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-100 disabled:opacity-40'
-                          }`}
-                        >
-                          {isCurrent ? 'Active Session' : 'Test Role Scope'}
-                        </button>
-                        {canManageUsers && (
+                        {isCurrent ? (
+                          <span className="inline-block rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white">
+                            Active Session
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={lockSession}
+                            disabled={!u.active}
+                            title="Sign out to log in with this official's Email, Password, and Security PIN"
+                            className="rounded-full border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1 text-[11px] font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-40 transition-colors"
+                          >
+                            Sign Out to Switch
+                          </button>
+                        )}
+                        {canManageUsers && canEditUserAccount(u) && (
                           <button
                             type="button"
                             onClick={() => openEditModal(u)}
@@ -560,7 +616,7 @@ export default function UsersView() {
                             <span>Scope</span>
                           </button>
                         )}
-                        {canManageUsers && u.id !== 'usr-super-admin' && (
+                        {canManageUsers && canEditUserAccount(u) && u.id !== 'usr-super-admin' && (
                           <button
                             type="button"
                             onClick={() => toggleUserActive(u.id)}
@@ -568,6 +624,15 @@ export default function UsersView() {
                           >
                             {u.active ? 'Suspend' : 'Activate'}
                           </button>
+                        )}
+                        {canManageUsers && !canEditUserAccount(u) && (
+                          <span
+                            title="Only Super Admin can edit or suspend Super Admin and Admin/Coordinator accounts"
+                            className="inline-flex items-center gap-1 rounded-full bg-slate-100 dark:bg-slate-800 px-2.5 py-1 text-[10px] font-semibold text-slate-500 dark:text-slate-400"
+                          >
+                            <Lock className="h-3 w-3" />
+                            Protected Role
+                          </span>
                         )}
                       </td>
                     </tr>
@@ -613,11 +678,11 @@ export default function UsersView() {
                 onChange={(e) => setEditRole(e.target.value as UserRole)}
                 className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 font-semibold text-slate-900 dark:text-slate-100"
               >
-                <option value="Super Admin">Super Admin (All 41 Stations)</option>
-                <option value="Admin/Coordinator">Admin/Coordinator (All 41 Stations)</option>
-                <option value="Polling Station Incharge">Polling Station Incharge</option>
-                <option value="Field Worker">Field Worker</option>
-                <option value="Viewer">Viewer (Read-Only)</option>
+                {ALL_ROLE_OPTIONS.filter((opt) => canManageRole(opt.value)).map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </div>
 

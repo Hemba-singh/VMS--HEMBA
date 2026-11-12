@@ -90,6 +90,7 @@ export default function VoterListView() {
     setActiveTab,
     revealFullPhone,
     canEditVoter,
+    currentUser,
     sendVoterNotification,
     sendBulkVoterNotifications,
     updateVoter,
@@ -2034,10 +2035,14 @@ export default function VoterListView() {
               </div>
               <div>
                 <label className="block font-medium text-slate-700 mb-1">
-                  Village Part (Leikai) → Allocates Station
+                  Village Part (Leikai) → Allocates Station ({villageParts.length} in Scope)
                 </label>
                 <select
-                  value={newVoterForm.villagePartId}
+                  value={
+                    villageParts.some((vp) => vp.id === newVoterForm.villagePartId)
+                      ? newVoterForm.villagePartId
+                      : villageParts[0]?.id || 'vp-1'
+                  }
                   onChange={(e) => setNewVoterForm((p) => ({ ...p, villagePartId: e.target.value }))}
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
                 >
@@ -2062,6 +2067,7 @@ export default function VoterListView() {
                 disabled={!newVoterForm.name.trim() || !/^[A-Z]{3}[0-9]{7}$/.test(newVoterForm.epicNo)}
                 onClick={() => {
                   const vp = villageParts.find((p) => p.id === newVoterForm.villagePartId) || villageParts[0];
+                  if (!vp) return;
                   const houseNoVal = newVoterForm.houseNo.trim() || 'H.No. 1';
                   const fam =
                     families.find((f) => f.villagePartId === vp.id && f.address.startsWith(houseNoVal)) ||
@@ -2087,7 +2093,7 @@ export default function VoterListView() {
                     status: newVoterForm.status,
                     category: newVoterForm.category,
                     tags: ['Manual Entry'],
-                    assignedWorkerId: users[0]?.id || 'usr-super-admin',
+                    assignedWorkerId: currentUser.id,
                   });
                   setNewVoterForm((p) => ({
                     ...p,
@@ -2098,6 +2104,7 @@ export default function VoterListView() {
                     spouseName: '',
                     phone: '',
                     houseNo: '',
+                    villagePartId: vp.id,
                   }));
                   setShowAddVoterModal(false);
                 }}

@@ -269,6 +269,9 @@ export interface StoreContextValue {
   setIsSessionLocked: (locked: boolean) => void;
   lockSession: () => void;
   authenticateWithRoleCredentials: (email: string, password: string, pin: string) => boolean;
+  authError: { field: 'email' | 'password' | 'pin' | 'account'; message: string } | null;
+  clearAuthError: () => void;
+  isAuthHydrated: boolean;
   firebaseUser: FirebaseUser | null;
   isAuthReady: boolean;
   isAuthenticated: boolean;
@@ -287,10 +290,17 @@ export interface StoreContextValue {
   canDeleteVoter: boolean;
   canRestoreVoter: boolean;
   canUnmaskPhone: boolean;
+  canAccessTab: (tab: NavigationTab) => boolean;
+  canManageRole: (targetRole: AppUser['role']) => boolean;
+  canEditUserAccount: (targetUser: AppUser) => boolean;
 
   // Core Scoped & Full Datasets
   villages: Village[];
   villageParts: VillagePart[];
+  scopedVillages: Village[];
+  scopedVillageParts: VillagePart[];
+  allVillages: Village[];
+  allVillageParts: VillagePart[];
   pollingStations: PollingStation[];
   scopedPollingStations: PollingStation[];
   voters: Voter[]; // Active, non-deleted, scoped by user role & polling stations
@@ -412,6 +422,29 @@ export const ROLE_DEFAULT_PASSWORDS: Record<AppUser['role'], string> = {
   Viewer: '',
 };
 
+const USERS_STORAGE_KEY = 'ac31_thoubal_users_v1';
+const SESSION_STORAGE_KEY = 'ac31_thoubal_session_v1';
+
+function mergeWithPrimarySuperAdmin(seedUsers: AppUser[], storedUsers: AppUser[]): AppUser[] {
+  const superAdminSeed = seedUsers[0];
+  const map = new Map<string, AppUser>();
+  for (const u of storedUsers) {
+    if (u && typeof u.id === 'string' && typeof u.email === 'string') {
+      map.set(u.id, u);
+    }
+  }
+  if (superAdminSeed) {
+    const existingSuper = map.get(superAdminSeed.id);
+    map.set(superAdminSeed.id, {
+      ...superAdminSeed,
+      password: existingSuper?.password?.trim() ? existingSuper.password : superAdminSeed.password,
+      pin: existingSuper?.pin?.trim() ? existingSuper.pin : superAdminSeed.pin,
+      active: true,
+    });
+  }
+  return Array.from(map.values());
+}
+
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const initialSeed = useMemo(() => generateSeedData(), []);
 
@@ -456,7 +489,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const [activeTab, setActiveTab] = useState<NavigationTab>('voter-list');
+  const [activeTabState, setActiveTabState] = useState<NavigationTab>('voter-list');
   const [globalSearch, setGlobalSearch] = useState('');
   const [searchScope, setSearchScope] = useState<SearchScope>('all');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
@@ -513,12 +546,51 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [currentUserId, setCurrentUserId] = useState<string>('usr-super-admin');
   const [isAuthenticatedState, setIsAuthenticatedState] = useState<boolean>(false);
   const [isSessionLocked, setIsSessionLocked] = useState<boolean>(true);
+  const [isAuthHydrated, setIsAuthHydrated] = useState<boolean>(false);
+  const [authError, setAuthError] = useState<{
+    field: 'email' | 'password' | 'pin' | 'account';
+    message: string;
+  } | null>(null);
   const [firebaseUser] = useState<FirebaseUser | null>(null);
   const [isAuthReady] = useState<boolean>(true);
   const [isConnectedToFirestore, setIsConnectedToFirestore] = useState<boolean>(false);
   const [isSyncingFirestore, setIsSyncingFirestore] = useState<boolean>(false);
   const [revealFullPhoneState, setRevealFullPhoneState] = useState<boolean>(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const clearAuthError = useCallback(() => {
+    setAuthError(null);
+  }, []);
+
+  const persistUsersToStorage = useCallback((nextUsers: AppUser[]) => {
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(nextUsers));
+      } catch {
+        // ignore storage quota errors
+      }
+    }
+  }, []);
+
+  const persistSessionToStorage = useCallback(
+    (session: { currentUserId: string; isAuthenticated: boolean; isSessionLocked: boolean } | null) => {
+      if (typeof window !== 'undefined') {
+        try {
+          if (!session || !session.isAuthenticated || session.isSessionLocked) {
+            window.localStorage.removeItem(SESSION_STORAGE_KEY);
+          } else {
+            window.localStorage.setItem(
+              SESSION_STORAGE_KEY,
+              JSON.stringify({ ...session, updatedAt: new Date().toISOString() })
+            );
+          }
+        } catch {
+          // ignore storage quota errors
+        }
+      }
+    },
+    []
+  );
 
   const addToast = useCallback((title: string, description?: string, variant: ToastMessage['variant'] = 'default') => {
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -532,12 +604,54 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Validate connection to Firestore on boot per skill requirements (no Google OAuth auto-unlock)
+  // Hydrate persisted users & active session on client boot and validate Firestore connection
   useEffect(() => {
+    Promise.resolve().then(() => {
+      if (typeof window !== 'undefined') {
+        let hydratedUsers = initialSeed.users;
+        try {
+          const rawUsers = window.localStorage.getItem(USERS_STORAGE_KEY);
+          if (rawUsers) {
+            const parsedUsers = JSON.parse(rawUsers) as AppUser[];
+            if (Array.isArray(parsedUsers) && parsedUsers.length > 0) {
+              hydratedUsers = mergeWithPrimarySuperAdmin(initialSeed.users, parsedUsers);
+              setUsers(hydratedUsers);
+            }
+          }
+        } catch {
+          // fallback to seed users
+        }
+
+        try {
+          const rawSession = window.localStorage.getItem(SESSION_STORAGE_KEY);
+          if (rawSession) {
+            const parsedSession = JSON.parse(rawSession) as {
+              currentUserId?: string;
+              isAuthenticated?: boolean;
+              isSessionLocked?: boolean;
+            };
+            if (parsedSession.isAuthenticated && !parsedSession.isSessionLocked && parsedSession.currentUserId) {
+              const matchedUser = hydratedUsers.find((u) => u.id === parsedSession.currentUserId);
+              if (matchedUser && matchedUser.active) {
+                setCurrentUserId(matchedUser.id);
+                setIsAuthenticatedState(true);
+                setIsSessionLocked(false);
+              } else {
+                window.localStorage.removeItem(SESSION_STORAGE_KEY);
+              }
+            }
+          }
+        } catch {
+          // ignore malformed session
+        }
+      }
+      setIsAuthHydrated(true);
+    });
+
     if (isFirebaseConfigured) {
       testFirestoreConnection().then((ok) => setIsConnectedToFirestore(ok));
     }
-  }, []);
+  }, [initialSeed.users]);
 
   const currentUser = useMemo(() => {
     return users.find((u) => u.id === currentUserId) || users[0];
@@ -628,6 +742,68 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       currentUser.role === 'Polling Station Incharge') &&
     currentUser.active;
 
+  // Tab-Level RBAC Guard: Hide & block Import Data, Users, and Settings for lower-tier roles
+  const canAccessTab = useCallback(
+    (tab: NavigationTab): boolean => {
+      if (!isAuthenticated) return false;
+      if (tab === 'import-data' || tab === 'users' || tab === 'settings') {
+        return currentUser.role === 'Super Admin' || currentUser.role === 'Admin/Coordinator';
+      }
+      return true;
+    },
+    [isAuthenticated, currentUser.role]
+  );
+
+  const activeTab: NavigationTab = useMemo(
+    () => (canAccessTab(activeTabState) ? activeTabState : 'voter-list'),
+    [canAccessTab, activeTabState]
+  );
+
+  const setActiveTab = useCallback(
+    (tab: NavigationTab) => {
+      if (!canAccessTab(tab)) {
+        addToast(
+          'Restricted Navigation Tab',
+          `Your role (${currentUser.role}) is not authorized to access this administrative module.`,
+          'danger'
+        );
+        setActiveTabState('voter-list');
+        return;
+      }
+      setActiveTabState(tab);
+    },
+    [canAccessTab, currentUser.role, addToast]
+  );
+
+  // Hierarchical User Management RBAC Guards (Super Admin vs Admin/Coordinator)
+  const canManageRole = useCallback(
+    (targetRole: AppUser['role']): boolean => {
+      if (!isAuthenticated || !currentUser.active) return false;
+      if (currentUser.role === 'Super Admin') return true;
+      if (currentUser.role === 'Admin/Coordinator') {
+        return (
+          targetRole === 'Polling Station Incharge' ||
+          targetRole === 'Field Worker' ||
+          targetRole === 'Viewer'
+        );
+      }
+      return false;
+    },
+    [isAuthenticated, currentUser.active, currentUser.role]
+  );
+
+  const canEditUserAccount = useCallback(
+    (targetUser: AppUser): boolean => {
+      if (!isAuthenticated || !currentUser.active) return false;
+      if (currentUser.role === 'Super Admin') return true;
+      if (currentUser.role === 'Admin/Coordinator') {
+        return targetUser.role !== 'Super Admin' && targetUser.role !== 'Admin/Coordinator';
+      }
+      return false;
+    },
+    [isAuthenticated, currentUser.active, currentUser.role]
+  );
+
   const revealFullPhone = canUnmaskPhone && revealFullPhoneState;
 
   const setRevealFullPhone = useCallback(
@@ -647,7 +823,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     [canUnmaskPhone, currentUser.role, currentUser.id, addToast, logAudit]
   );
 
-  // Scope Polling Stations by Current User Role
+  // Scope Polling Stations, Village Parts & Villages by Current User Role
   const scopedPollingStations = useMemo(() => {
     if (!isAuthenticated) return [];
     if (currentUser.pollingStationIds.includes('ALL')) {
@@ -657,6 +833,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [pollingStations, currentUser, isAuthenticated]);
 
   const scopedPsIdSet = useMemo(() => new Set(scopedPollingStations.map((p) => p.id)), [scopedPollingStations]);
+
+  const scopedVillageParts = useMemo(() => {
+    if (!isAuthenticated) return [];
+    if (currentUser.pollingStationIds.includes('ALL')) {
+      return villageParts;
+    }
+    return villageParts.filter((vp) => scopedPsIdSet.has(vp.pollingStationId));
+  }, [villageParts, currentUser.pollingStationIds, scopedPsIdSet, isAuthenticated]);
+
+  const scopedVillages = useMemo(() => {
+    if (!isAuthenticated) return [];
+    if (currentUser.pollingStationIds.includes('ALL') || currentUser.villageIds.includes('ALL')) {
+      return villages;
+    }
+    const allowedVillageIds = new Set<string>(scopedVillageParts.map((vp) => vp.villageId));
+    return villages.filter((v) => allowedVillageIds.has(v.id));
+  }, [villages, currentUser.pollingStationIds, currentUser.villageIds, scopedVillageParts, isAuthenticated]);
 
   // Scope Active Voters by Role & Polling Stations
   const voters = useMemo(() => {
@@ -721,74 +914,79 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return auditLogs.filter((a) => a.userName === currentUser.name || a.createdBy === currentUser.id);
   }, [auditLogs, canManageUsers, currentUser, isAuthenticated]);
 
-  const switchActiveUserRole = useCallback(
-    (userId: string) => {
-      const target = users.find((u) => u.id === userId);
-      if (!target) return;
-      if (!target.active) {
-        addToast(
-          'Account Suspended',
-          `${target.name} (${target.role}) is currently disabled by an Administrator.`,
-          'danger'
-        );
-        return;
-      }
-      setCurrentUserId(userId);
-      setSelectedPollingStationFilter([]);
-      setSelectedVoterId(null);
-      if (target.role === 'Viewer' || target.role === 'Field Worker') {
-        setRevealFullPhoneState(false);
-      }
-      setIsAuthenticatedState(true);
-      setIsSessionLocked(false);
-      logAudit('Auth', target.id, 'LOGIN', 'roleScope', currentUser.role, `${target.name} (${target.role})`);
-      addToast(
-        `Authenticated as ${target.role}`,
-        `${target.name} · Scope: ${
-          target.pollingStationIds.includes('ALL')
-            ? 'All 41 Polling Stations'
-            : `${target.pollingStationIds.length} Polling Station(s)`
-        }`,
-        'success'
-      );
-    },
-    [users, currentUser.role, logAudit, addToast]
-  );
-
   const lockSession = useCallback(() => {
     setIsAuthenticatedState(false);
     setIsSessionLocked(true);
     setRevealFullPhoneState(false);
     setSelectedVoterId(null);
+    setAuthError(null);
+    persistSessionToStorage(null);
     closeHeaderMenus();
     logAudit('Auth', currentUser.id, 'LOGIN', 'sessionState', 'Unlocked', 'Locked');
-    addToast('Signed Out', 'Please sign in with your Official Email and Role Security PIN.', 'default');
-  }, [currentUser.id, closeHeaderMenus, logAudit, addToast]);
+    addToast('Signed Out', 'Please sign in with your Official Email, Password, and 4-Digit Security PIN.', 'default');
+  }, [currentUser.id, persistSessionToStorage, closeHeaderMenus, logAudit, addToast]);
+
+  const switchActiveUserRole = useCallback(
+    (userId: string) => {
+      if (userId === currentUser.id && isAuthenticated && !isSessionLocked) {
+        return;
+      }
+      // Require full re-login with Email + Password + PIN to change official accounts
+      lockSession();
+      addToast(
+        'Re-Authentication Required',
+        'Direct role switching is disabled. Please sign in with the target official Email, Password, and Security PIN.',
+        'warning'
+      );
+    },
+    [currentUser.id, isAuthenticated, isSessionLocked, lockSession, addToast]
+  );
 
   const authenticateWithRoleCredentials = useCallback(
     (email: string, password: string, pin: string): boolean => {
+      setAuthError(null);
       const cleanEmail = email.trim().toLowerCase();
       const cleanPassword = password.trim();
       const cleanPin = pin.trim();
+
+      if (!cleanEmail) {
+        const msg = 'Please enter your registered official email address.';
+        setAuthError({ field: 'email', message: msg });
+        addToast('Email Required', msg, 'danger');
+        return false;
+      }
+
       const target = users.find((u) => u.email.toLowerCase() === cleanEmail);
       if (!target) {
-        addToast('Authentication Failed', 'No registered official found with that email address.', 'danger');
+        const msg = 'No registered constituency official found with this email address.';
+        setAuthError({ field: 'email', message: msg });
+        addToast('Authentication Failed', msg, 'danger');
         return false;
       }
+
       if (!target.active) {
-        addToast('Account Suspended', 'This official account has been deactivated by Super Admin.', 'danger');
+        const msg = 'This official account has been deactivated by the Super Admin.';
+        setAuthError({ field: 'account', message: msg });
+        addToast('Account Suspended', msg, 'danger');
         return false;
       }
+
       const expectedPassword = target.password;
       if (!expectedPassword || cleanPassword !== expectedPassword) {
-        addToast('Invalid Password', 'The password entered is incorrect.', 'danger');
+        const msg = 'The account password entered is incorrect. Please check case sensitivity.';
+        setAuthError({ field: 'password', message: msg });
+        addToast('Invalid Password', msg, 'danger');
         return false;
       }
+
       const expectedPin = target.pin;
       if (!expectedPin || cleanPin !== expectedPin) {
-        addToast('Invalid Security PIN', 'The Security PIN entered is incorrect.', 'danger');
+        const msg = 'The 4-digit Role Security PIN entered is incorrect.';
+        setAuthError({ field: 'pin', message: msg });
+        addToast('Invalid Security PIN', msg, 'danger');
         return false;
       }
+
       setCurrentUserId(target.id);
       setSelectedPollingStationFilter([]);
       if (target.role === 'Viewer' || target.role === 'Field Worker') {
@@ -796,21 +994,26 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
       setIsAuthenticatedState(true);
       setIsSessionLocked(false);
+      persistSessionToStorage({
+        currentUserId: target.id,
+        isAuthenticated: true,
+        isSessionLocked: false,
+      });
       logAudit('Auth', target.id, 'LOGIN', 'credentialAuth', 'Locked', `${target.name} (${target.role})`);
       addToast(
         `Signed In · ${target.role}`,
-        `Welcome ${target.name}. Data isolated to ${
+        `Welcome ${target.name}. Session persisted & isolated to ${
           target.pollingStationIds.includes('ALL') ? 'PS 1–41' : target.pollingStationIds.map((p) => p.toUpperCase()).join(', ')
         }`,
         'success'
       );
       return true;
     },
-    [users, addToast, logAudit]
+    [users, persistSessionToStorage, addToast, logAudit]
   );
 
   const loginWithGoogle = useCallback(async () => {
-    addToast('Email + Security PIN Required', 'Please sign in using your Official Email and 4-digit Role Security PIN.', 'warning');
+    addToast('Email + Security PIN Required', 'Please sign in using your Official Email, Password, and 4-digit Role Security PIN.', 'warning');
   }, [addToast]);
 
   const logoutFirebase = useCallback(async () => {
@@ -818,9 +1021,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setIsSessionLocked(true);
     setRevealFullPhoneState(false);
     setSelectedVoterId(null);
+    setAuthError(null);
+    persistSessionToStorage(null);
     closeHeaderMenus();
     addToast('Signed Out', 'You have been signed out and returned to the Login Screen.', 'default');
-  }, [closeHeaderMenus, addToast]);
+  }, [persistSessionToStorage, closeHeaderMenus, addToast]);
 
   const syncSeedDataToFirestore = useCallback(async () => {
     if (!isAuthenticated) {
@@ -1809,33 +2014,73 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         addToast('Permission Denied', 'Only Super Admin or Coordinator can create user accounts.', 'danger');
         return;
       }
+      if (!canManageRole(userData.role)) {
+        addToast(
+          'Privilege Escalation Blocked',
+          `Only a Super Admin can create ${userData.role} accounts.`,
+          'danger'
+        );
+        return;
+      }
+      const cleanEmail = userData.email.trim().toLowerCase();
+      if (users.some((u) => u.email.toLowerCase() === cleanEmail)) {
+        addToast('Duplicate Email', 'An official account with this email address already exists.', 'danger');
+        return;
+      }
       const now = new Date().toISOString();
       const id = `usr-${Date.now().toString().slice(-5)}`;
       const newUser: AppUser = {
         ...userData,
+        email: userData.email.trim(),
+        password: userData.password?.trim(),
+        pin: userData.pin?.trim(),
         id,
         uid: id,
         createdBy: currentUser.id,
         createdAt: now,
         updatedAt: now,
       };
-      setUsers((prev) => [...prev, newUser]);
+      setUsers((prev) => {
+        const next = [...prev, newUser];
+        persistUsersToStorage(next);
+        return next;
+      });
       logAudit('User', id, 'CREATE', 'role', 'None', `${newUser.name} (${newUser.role})`);
-      addToast('User Created', `${newUser.name} assigned as ${newUser.role}`, 'success');
+      addToast('Official Account Created & Persisted', `${newUser.name} (${newUser.email}) can now sign in.`, 'success');
     },
-    [canManageUsers, currentUser.id, logAudit, addToast]
+    [canManageUsers, canManageRole, users, currentUser.id, persistUsersToStorage, logAudit, addToast]
   );
 
   const toggleUserActive = useCallback(
     (userId: string) => {
       if (!canManageUsers || userId === 'usr-super-admin') return;
-      setUsers((prev) =>
-        prev.map((u) => (u.id === userId ? { ...u, active: !u.active, updatedAt: new Date().toISOString() } : u))
-      );
+      const targetUser = users.find((u) => u.id === userId);
+      if (!targetUser) return;
+      if (!canEditUserAccount(targetUser)) {
+        addToast(
+          'Privilege Escalation Blocked',
+          `Only a Super Admin can suspend or activate ${targetUser.role} accounts.`,
+          'danger'
+        );
+        return;
+      }
+      setUsers((prev) => {
+        const next = prev.map((u) =>
+          u.id === userId ? { ...u, active: !u.active, updatedAt: new Date().toISOString() } : u
+        );
+        persistUsersToStorage(next);
+        const updatedTarget = next.find((u) => u.id === userId);
+        if (updatedTarget && !updatedTarget.active && userId === currentUser.id) {
+          setIsAuthenticatedState(false);
+          setIsSessionLocked(true);
+          persistSessionToStorage(null);
+        }
+        return next;
+      });
       logAudit('User', userId, 'UPDATE', 'active', 'toggled', 'toggled');
-      addToast('User Status Updated', `Updated account status for ${userId}`, 'default');
+      addToast('User Status Updated', `Updated account status for ${targetUser.name}`, 'default');
     },
-    [canManageUsers, logAudit, addToast]
+    [canManageUsers, canEditUserAccount, users, currentUser.id, persistUsersToStorage, persistSessionToStorage, logAudit, addToast]
   );
 
   const updateUserRoleScope = useCallback(
@@ -1853,13 +2098,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         addToast('Permission Denied', 'Only Super Admin or Coordinator can modify user roles and station scopes.', 'danger');
         return;
       }
+      const targetUser = users.find((u) => u.id === userId);
+      if (!targetUser) return;
+      if (!canEditUserAccount(targetUser) || !canManageRole(updates.role)) {
+        addToast(
+          'Privilege Escalation Blocked',
+          'Only Super Admin can modify or assign Super Admin and Admin/Coordinator roles.',
+          'danger'
+        );
+        return;
+      }
       if (userId === 'usr-super-admin' && currentUser.role !== 'Super Admin') {
         addToast('Permission Denied', 'Only Super Admin can modify the primary Super Admin account.', 'danger');
         return;
       }
       const now = new Date().toISOString();
-      setUsers((prev) =>
-        prev.map((u) => {
+      setUsers((prev) => {
+        const next = prev.map((u) => {
           if (u.id !== userId) return u;
           return {
             ...u,
@@ -1870,8 +2125,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             pin: updates.pin?.trim() ? updates.pin.trim() : u.pin,
             updatedAt: now,
           };
-        })
-      );
+        });
+        persistUsersToStorage(next);
+        return next;
+      });
       logAudit(
         'User',
         userId,
@@ -1890,7 +2147,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         'success'
       );
     },
-    [canManageUsers, currentUser.role, logAudit, addToast]
+    [canManageUsers, canEditUserAccount, canManageRole, users, currentUser.role, persistUsersToStorage, logAudit, addToast]
   );
 
   const authState = useMemo<AuthStateObject>(
@@ -1948,6 +2205,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setIsSessionLocked,
     lockSession,
     authenticateWithRoleCredentials,
+    authError,
+    clearAuthError,
+    isAuthHydrated,
     firebaseUser,
     isAuthReady,
     isAuthenticated,
@@ -1966,8 +2226,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     canDeleteVoter,
     canRestoreVoter,
     canUnmaskPhone,
-    villages,
-    villageParts,
+    canAccessTab,
+    canManageRole,
+    canEditUserAccount,
+    villages: scopedVillages,
+    villageParts: scopedVillageParts,
+    scopedVillages,
+    scopedVillageParts,
+    allVillages: villages,
+    allVillageParts: villageParts,
     pollingStations,
     scopedPollingStations,
     voters,
