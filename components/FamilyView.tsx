@@ -2,7 +2,6 @@
 
 import React, { useState, useMemo } from 'react';
 import {
-  Users,
   Search,
   MapPin,
   ArrowRightLeft,
@@ -10,10 +9,8 @@ import {
   GitMerge,
   Printer,
   CheckCircle2,
-  AlertTriangle,
   Clock,
   X,
-  UserCheck,
   ExternalLink,
 } from 'lucide-react';
 import { useVoterStore } from '@/lib/store-context';
@@ -40,7 +37,6 @@ export default function FamilyView() {
   const [psFilter, setPsFilter] = useState('ALL');
   const [villageFilter, setVillageFilter] = useState('ALL');
 
-  // Modals for Move, Split, Merge, Print Sheet
   const [moveModalVoter, setMoveModalVoter] = useState<Voter | null>(null);
   const [targetFamilyId, setTargetFamilyId] = useState('');
   const [auditReason, setAuditReason] = useState('');
@@ -88,289 +84,315 @@ export default function FamilyView() {
     });
   }, [scopedFamilies, selectedFamilyFilter, psFilter, villageFilter, membersByFamily, searchQuery]);
 
+  const getStatusTextClass = (status: Voter['status']) => {
+    if (status === 'Verified') return 'text-emerald-700 dark:text-emerald-400';
+    if (status === 'Issues') return 'text-red-600 dark:text-red-400';
+    if (status === 'New') return 'text-blue-600 dark:text-blue-400';
+    return 'text-amber-700 dark:text-amber-400';
+  };
+
   return (
-    <div className="space-y-5">
-      {/* Header & Search Controls */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-bold tracking-tight text-slate-900">
-              Household & Family Verification View ({filteredFamilies.length} Families)
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Voters grouped by Family ID with Head of Family, member relations, status roll-up, and audited Move / Split / Merge tools.
-            </p>
-          </div>
-          {selectedFamilyFilter && (
-            <button
-              type="button"
-              onClick={() => setSelectedFamilyFilter(null)}
-              className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 border border-blue-200 px-3.5 py-1.5 text-xs font-semibold text-[#0071e3]"
-            >
-              <span>Showing Selected Family Only</span>
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
+    <div className="space-y-6">
+      {/* Page Header & Search Controls */}
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 dark:border-zinc-800 pb-4">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-slate-900 dark:text-zinc-50">
+            Household verification
+          </h1>
+          <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1">
+            <span className="font-mono tabular-nums font-medium text-slate-700 dark:text-zinc-300">
+              {filteredFamilies.length}
+            </span>{' '}
+            households grouped by Family ID with member relations and verification progress.
+          </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 min-w-[240px]">
-            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by Family Code (THB-FAM-0001), Head of Family, Member Name, EPIC, or Leikai..."
-              className="w-full rounded-xl border border-slate-300 pl-9 pr-3 py-2 text-xs text-slate-900 focus:border-[#0071e3] focus:outline-none"
-            />
-          </div>
-
-          <select
-            value={villageFilter}
-            onChange={(e) => setVillageFilter(e.target.value)}
-            className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700"
+        {selectedFamilyFilter && (
+          <button
+            type="button"
+            onClick={() => setSelectedFamilyFilter(null)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 dark:border-blue-900/60 bg-blue-50 dark:bg-blue-950/40 px-3 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-300 whitespace-nowrap shrink-0"
           >
-            <option value="ALL">All 12 Villages</option>
-            {villages.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={psFilter}
-            onChange={(e) => setPsFilter(e.target.value)}
-            className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700"
-          >
-            <option value="ALL">All Polling Stations</option>
-            {scopedPollingStations.map((ps) => (
-              <option key={ps.id} value={ps.id}>
-                PS-{ps.psNo}: {ps.name}
-              </option>
-            ))}
-          </select>
-        </div>
+            <span>Showing selected household</span>
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
-      {/* Grid of Family Household Cards */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {filteredFamilies.map((fam) => {
-          const members = membersByFamily.get(fam.id) || [];
-          const village = villageMap.get(fam.villageId);
-          const vp = vpMap.get(fam.villagePartId);
-          const ps = psMap.get(fam.pollingStationId);
+      {/* Filter Toolbar */}
+      <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[240px]">
+          <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 dark:text-zinc-500" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by family code, head of family, member name, EPIC, or leikai..."
+            className="w-full rounded-lg border border-slate-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950 pl-9 pr-3 py-2 text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:bg-white dark:focus:bg-zinc-900 focus:border-blue-600 focus:outline-none"
+          />
+        </div>
 
-          const verifiedCount = members.filter((m) => m.status === 'Verified').length;
-          const issueCount = members.filter((m) => m.status === 'Issues').length;
-          const allVerified = verifiedCount === members.length && members.length > 0;
+        <select
+          value={villageFilter}
+          onChange={(e) => setVillageFilter(e.target.value)}
+          className="rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-xs font-medium text-slate-700 dark:text-zinc-200 focus:border-blue-600 focus:outline-none"
+        >
+          <option value="ALL">All {villages.length} villages</option>
+          {villages.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.name}
+            </option>
+          ))}
+        </select>
 
-          return (
-            <div
-              key={fam.id}
-              className="rounded-2xl border border-slate-200 bg-white overflow-hidden flex flex-col justify-between transition-shadow hover:shadow-md"
-            >
-              <div>
-                {/* Family Header */}
-                <div className="border-b border-slate-100 bg-slate-50/70 px-5 py-3.5 flex flex-wrap items-center justify-between gap-2">
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs font-bold text-[#0071e3] bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">
-                        {fam.familyCode}
-                      </span>
-                      <span className="text-sm font-bold text-slate-900">Head: {fam.headName}</span>
+        <select
+          value={psFilter}
+          onChange={(e) => setPsFilter(e.target.value)}
+          className="rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-xs font-medium text-slate-700 dark:text-zinc-200 focus:border-blue-600 focus:outline-none"
+        >
+          <option value="ALL">All polling stations ({scopedPollingStations.length})</option>
+          {scopedPollingStations.map((ps) => (
+            <option key={ps.id} value={ps.id}>
+              PS-{ps.psNo}: {ps.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Empty State */}
+      {filteredFamilies.length === 0 ? (
+        <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-10 text-center space-y-2">
+          <p className="text-sm font-medium text-slate-900 dark:text-zinc-100">
+            No matching households found
+          </p>
+          <p className="text-xs text-slate-500 dark:text-zinc-400">
+            Adjust your search query, village filter, or polling station filter to view records.
+          </p>
+        </div>
+      ) : (
+        /* Grid of Household Cards */
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {filteredFamilies.map((fam) => {
+            const members = membersByFamily.get(fam.id) || [];
+            const village = villageMap.get(fam.villageId);
+            const vp = vpMap.get(fam.villagePartId);
+            const ps = psMap.get(fam.pollingStationId);
+
+            const verifiedCount = members.filter((m) => m.status === 'Verified').length;
+            const issueCount = members.filter((m) => m.status === 'Issues').length;
+            const allVerified = verifiedCount === members.length && members.length > 0;
+
+            return (
+              <div
+                key={fam.id}
+                className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden flex flex-col justify-between"
+              >
+                <div>
+                  {/* Household Header */}
+                  <div className="border-b border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/60 px-5 py-3.5 flex flex-wrap items-start justify-between gap-2">
+                    <div className="space-y-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="font-mono font-semibold text-blue-600 dark:text-blue-400">
+                          {fam.familyCode}
+                        </span>
+                        <span className="text-slate-300 dark:text-zinc-700" aria-hidden="true">·</span>
+                        <span className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
+                          {fam.headName}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 dark:text-zinc-400 flex items-center gap-1.5">
+                        <MapPin className="h-3 w-3 text-slate-400 dark:text-zinc-500 shrink-0" />
+                        <span className="truncate">
+                          {fam.address} · <span className="font-medium text-slate-700 dark:text-zinc-300">PS-{ps?.psNo}</span> ({vp?.name}, {village?.name})
+                        </span>
+                      </p>
                     </div>
-                    <p className="text-[11px] text-slate-500 flex items-center gap-1">
-                      <MapPin className="h-3 w-3 text-slate-400 shrink-0" />
-                      <span>
-                        {fam.address} · <strong className="text-slate-700">PS-{ps?.psNo}</strong> ({vp?.name}, {village?.name})
-                      </span>
-                    </p>
-                  </div>
 
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold tabular-nums ${
+                    <div
+                      className={`inline-flex items-center gap-1 text-xs font-medium tabular-nums shrink-0 ${
                         allVerified
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          ? 'text-emerald-700 dark:text-emerald-400'
                           : issueCount > 0
-                          ? 'bg-red-50 text-red-700 border-red-200'
-                          : 'bg-amber-50 text-amber-700 border-amber-200'
+                          ? 'text-red-600 dark:text-red-400'
+                          : 'text-amber-700 dark:text-amber-400'
                       }`}
                     >
-                      {allVerified ? <CheckCircle2 className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
-                      {verifiedCount}/{members.length} Verified
-                    </span>
+                      {allVerified ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Clock className="h-3.5 w-3.5" />}
+                      <span>
+                        {verifiedCount}/{members.length} verified
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Members List */}
+                  <div className="divide-y divide-slate-100 dark:divide-zinc-800/80 px-5 py-1">
+                    {members.map((m) => (
+                      <div key={m.id} className="py-2.5 flex items-center justify-between gap-3 text-xs">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedVoterId(m.id);
+                                setActiveTab('voter-list');
+                              }}
+                              className="font-semibold text-slate-900 dark:text-zinc-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline truncate"
+                            >
+                              {m.name}
+                            </button>
+                            <span className="text-slate-300 dark:text-zinc-700" aria-hidden="true">·</span>
+                            <span className="text-[11px] text-slate-500 dark:text-zinc-400">
+                              {m.relationToHead || 'Member'}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-zinc-400 font-mono tabular-nums mt-0.5 truncate">
+                            {m.epicNo} · Age {Number.isFinite(m.age) ? m.age : '-'} ({m.gender}) · Father: {m.fatherName}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`text-[11px] font-medium ${getStatusTextClass(m.status)}`}>
+                            {m.status}
+                          </span>
+                          {canEditVoter && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMoveModalVoter(m);
+                                setTargetFamilyId('');
+                                setAuditReason('');
+                              }}
+                              title="Move member to another household"
+                              className="p-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 hover:bg-slate-50 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-zinc-100 transition-colors"
+                            >
+                              <ArrowRightLeft className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
 
-                {/* Members Table inside Family Card */}
-                <div className="divide-y divide-slate-100 px-5 py-2">
-                  {members.map((m) => (
-                    <div key={m.id} className="py-2.5 flex items-center justify-between gap-2 text-xs">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedVoterId(m.id);
-                              setActiveTab('voter-list');
-                            }}
-                            className="font-semibold text-slate-900 hover:text-[#0071e3] hover:underline truncate"
-                          >
-                            {m.name}
-                          </button>
-                          <span className="text-[11px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
-                            {m.relationToHead || 'Member'}
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-slate-500 font-mono mt-0.5">
-                          {m.epicNo} · Age {m.age} ({m.gender}) · Father: {m.fatherName}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                            m.status === 'Verified'
-                              ? 'bg-emerald-50 text-emerald-700'
-                              : m.status === 'Issues'
-                              ? 'bg-red-50 text-red-700'
-                              : m.status === 'New'
-                              ? 'bg-blue-50 text-[#0071e3]'
-                              : 'bg-amber-50 text-amber-700'
-                          }`}
-                        >
-                          {m.status}
-                        </span>
-                        {canEditVoter && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setMoveModalVoter(m);
-                              setTargetFamilyId('');
-                              setAuditReason('');
-                            }}
-                            title="Move Member to Another Family"
-                            className="p-1 rounded-md border border-slate-200 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                          >
-                            <ArrowRightLeft className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Family Card Footer Actions */}
-              <div className="border-t border-slate-100 bg-slate-50/50 px-5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedFamilyFilter(fam.id);
-                    setActiveTab('voter-list');
-                  }}
-                  className="inline-flex items-center gap-1 font-medium text-[#0071e3] hover:underline"
-                >
-                  <span>Open in Voter List</span>
-                  <ExternalLink className="h-3 w-3" />
-                </button>
-
-                <div className="flex items-center gap-2">
-                  {canEditVoter && members.length >= 2 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSplitModalFamily(fam);
-                        setSelectedSplitVoterIds([members[members.length - 1].id]);
-                        setNewHeadVoterId(members[members.length - 1].id);
-                        setAuditReason('');
-                      }}
-                      className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      <GitBranch className="h-3 w-3" />
-                      Split Family
-                    </button>
-                  )}
-
-                  {canEditVoter && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setMergeModalFamily(fam);
-                        setTargetFamilyId('');
-                        setAuditReason('');
-                      }}
-                      className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      <GitMerge className="h-3 w-3" />
-                      Merge
-                    </button>
-                  )}
-
+                {/* Footer Actions */}
+                <div className="border-t border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-950/40 px-5 py-3 flex flex-wrap items-center justify-between gap-2 text-xs">
                   <button
                     type="button"
-                    onClick={() => setPrintSheetFamily(fam)}
-                    className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                    onClick={() => {
+                      setSelectedFamilyFilter(fam.id);
+                      setActiveTab('voter-list');
+                    }}
+                    className="inline-flex items-center gap-1 font-medium text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap shrink-0"
                   >
-                    <Printer className="h-3 w-3" />
-                    Field Sheet
+                    <span>Open in voter list</span>
+                    <ExternalLink className="h-3 w-3" />
                   </button>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {canEditVoter && members.length >= 2 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSplitModalFamily(fam);
+                          setSelectedSplitVoterIds([members[members.length - 1].id]);
+                          setNewHeadVoterId(members[members.length - 1].id);
+                          setAuditReason('');
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors whitespace-nowrap"
+                      >
+                        <GitBranch className="h-3 w-3" />
+                        <span>Split family</span>
+                      </button>
+                    )}
+
+                    {canEditVoter && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMergeModalFamily(fam);
+                          setTargetFamilyId('');
+                          setAuditReason('');
+                        }}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors whitespace-nowrap"
+                      >
+                        <GitMerge className="h-3 w-3" />
+                        <span>Merge</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => setPrintSheetFamily(fam)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-[11px] font-medium text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors whitespace-nowrap"
+                    >
+                      <Printer className="h-3 w-3" />
+                      <span>Field sheet</span>
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Modal 1: Move Member Between Families */}
       {moveModalVoter && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-slate-900">Move Member to Another Family</h3>
-              <button type="button" onClick={() => setMoveModalVoter(null)}>
-                <X className="h-4 w-4 text-slate-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-[1px] p-4">
+          <div className="w-full max-w-md rounded-xl bg-white dark:bg-zinc-900 p-6 shadow-xl border border-slate-200 dark:border-zinc-800 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-zinc-800 pb-3">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
+                Move member to another household
+              </h3>
+              <button
+                type="button"
+                onClick={() => setMoveModalVoter(null)}
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-zinc-200"
+              >
+                <X className="h-4 w-4" />
               </button>
             </div>
-            <p className="text-xs text-slate-600">
-              Moving <strong>{moveModalVoter.name}</strong> ({moveModalVoter.epicNo}) will update both households&apos; verification roll-ups and write an audit log entry.
+            <p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed">
+              Moving <strong className="text-slate-900 dark:text-zinc-100">{moveModalVoter.name}</strong> ({moveModalVoter.epicNo}) updates both household roll-ups and records an audit log entry.
             </p>
             <div className="space-y-3 text-xs">
               <div>
-                <label className="block font-medium text-slate-700 mb-1">Target Household / Family</label>
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">
+                  Target household
+                </label>
                 <select
                   value={targetFamilyId}
                   onChange={(e) => setTargetFamilyId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                  className="w-full rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-slate-900 dark:text-zinc-100 focus:border-blue-600 focus:outline-none"
                 >
-                  <option value="">Select target family...</option>
+                  <option value="">Select target household...</option>
                   {scopedFamilies
                     .filter((f) => f.id !== moveModalVoter.familyId)
                     .map((f) => (
                       <option key={f.id} value={f.id}>
-                        {f.familyCode} — Head: {f.headName}
+                        {f.familyCode} · Head: {f.headName}
                       </option>
                     ))}
                 </select>
               </div>
               <div>
-                <label className="block font-medium text-slate-700 mb-1">Audit Reason (Required)</label>
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">
+                  Audit reason
+                </label>
                 <input
                   type="text"
                   value={auditReason}
                   onChange={(e) => setAuditReason(e.target.value)}
-                  placeholder="e.g., Marriage / household correction"
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                  placeholder="e.g., Marriage or household correction"
+                  className="w-full rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-slate-900 dark:text-zinc-100 focus:border-blue-600 focus:outline-none"
                 />
               </div>
             </div>
-            <div className="flex justify-end gap-2">
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800">
               <button
                 type="button"
                 onClick={() => setMoveModalVoter(null)}
-                className="rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700"
+                className="rounded-lg border border-slate-200 dark:border-zinc-700 px-4 py-2 text-xs font-medium text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800"
               >
                 Cancel
               </button>
@@ -381,9 +403,9 @@ export default function FamilyView() {
                   moveVoterToFamily(moveModalVoter.id, targetFamilyId, auditReason.trim());
                   setMoveModalVoter(null);
                 }}
-                className="rounded-full bg-[#0071e3] px-4 py-2 text-xs font-semibold text-white disabled:opacity-40"
+                className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
               >
-                Move Member
+                Move member
               </button>
             </div>
           </div>
@@ -392,18 +414,24 @@ export default function FamilyView() {
 
       {/* Modal 2: Split Family */}
       {splitModalFamily && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-slate-900">Split Household {splitModalFamily.familyCode}</h3>
-              <button type="button" onClick={() => setSplitModalFamily(null)}>
-                <X className="h-4 w-4 text-slate-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-[1px] p-4">
+          <div className="w-full max-w-md rounded-xl bg-white dark:bg-zinc-900 p-6 shadow-xl border border-slate-200 dark:border-zinc-800 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-zinc-800 pb-3">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
+                Split household {splitModalFamily.familyCode}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setSplitModalFamily(null)}
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-zinc-200"
+              >
+                <X className="h-4 w-4" />
               </button>
             </div>
-            <p className="text-xs text-slate-600">
-              Select members to split into a new independent Family ID in the same village part & polling station.
+            <p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed">
+              Select members to move into a new Family ID in the same village part and polling station.
             </p>
-            <div className="space-y-2 max-h-48 overflow-y-auto border border-slate-200 rounded-xl p-3 text-xs">
+            <div className="space-y-2 max-h-48 overflow-y-auto border border-slate-200 dark:border-zinc-800 rounded-lg p-3 text-xs bg-slate-50/50 dark:bg-zinc-950/50">
               {(membersByFamily.get(splitModalFamily.id) || []).map((m) => {
                 const checked = selectedSplitVoterIds.includes(m.id);
                 return (
@@ -421,22 +449,24 @@ export default function FamilyView() {
                             setNewHeadVoterId(next[0]);
                           }
                         }}
-                        className="rounded border-slate-300"
+                        className="rounded border-slate-300 dark:border-zinc-700 text-blue-600"
                       />
-                      <span className="font-medium text-slate-900">{m.name}</span>
+                      <span className="font-medium text-slate-900 dark:text-zinc-100">{m.name}</span>
                     </span>
-                    <span className="font-mono text-slate-500">{m.epicNo}</span>
+                    <span className="font-mono text-slate-500 dark:text-zinc-400">{m.epicNo}</span>
                   </label>
                 );
               })}
             </div>
             <div className="space-y-3 text-xs">
               <div>
-                <label className="block font-medium text-slate-700 mb-1">New Head of Family</label>
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">
+                  New head of household
+                </label>
                 <select
                   value={newHeadVoterId}
                   onChange={(e) => setNewHeadVoterId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                  className="w-full rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-slate-900 dark:text-zinc-100 focus:border-blue-600 focus:outline-none"
                 >
                   {selectedSplitVoterIds.map((id) => {
                     const v = voters.find((x) => x.id === id);
@@ -449,21 +479,23 @@ export default function FamilyView() {
                 </select>
               </div>
               <div>
-                <label className="block font-medium text-slate-700 mb-1">Audit Reason (Required)</label>
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">
+                  Audit reason
+                </label>
                 <input
                   type="text"
                   value={auditReason}
                   onChange={(e) => setAuditReason(e.target.value)}
-                  placeholder="e.g., Separate ration card / new house number"
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                  placeholder="e.g., Separate ration card or new house number"
+                  className="w-full rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-slate-900 dark:text-zinc-100 focus:border-blue-600 focus:outline-none"
                 />
               </div>
             </div>
-            <div className="flex justify-end gap-2">
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800">
               <button
                 type="button"
                 onClick={() => setSplitModalFamily(null)}
-                className="rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700"
+                className="rounded-lg border border-slate-200 dark:border-zinc-700 px-4 py-2 text-xs font-medium text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800"
               >
                 Cancel
               </button>
@@ -474,9 +506,9 @@ export default function FamilyView() {
                   splitFamily(splitModalFamily.id, selectedSplitVoterIds, newHeadVoterId, auditReason.trim());
                   setSplitModalFamily(null);
                 }}
-                className="rounded-full bg-[#0071e3] px-4 py-2 text-xs font-semibold text-white disabled:opacity-40"
+                className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
               >
-                Confirm Split
+                Confirm split
               </button>
             </div>
           </div>
@@ -485,48 +517,58 @@ export default function FamilyView() {
 
       {/* Modal 3: Merge Families */}
       {mergeModalFamily && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-slate-900">Merge {mergeModalFamily.familyCode} Into Another Household</h3>
-              <button type="button" onClick={() => setMergeModalFamily(null)}>
-                <X className="h-4 w-4 text-slate-500" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-[1px] p-4">
+          <div className="w-full max-w-md rounded-xl bg-white dark:bg-zinc-900 p-6 shadow-xl border border-slate-200 dark:border-zinc-800 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-zinc-800 pb-3">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
+                Merge {mergeModalFamily.familyCode} into another household
+              </h3>
+              <button
+                type="button"
+                onClick={() => setMergeModalFamily(null)}
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-zinc-200"
+              >
+                <X className="h-4 w-4" />
               </button>
             </div>
             <div className="space-y-3 text-xs">
               <div>
-                <label className="block font-medium text-slate-700 mb-1">Destination Family</label>
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">
+                  Destination household
+                </label>
                 <select
                   value={targetFamilyId}
                   onChange={(e) => setTargetFamilyId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                  className="w-full rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-slate-900 dark:text-zinc-100 focus:border-blue-600 focus:outline-none"
                 >
                   <option value="">Select destination household...</option>
                   {scopedFamilies
                     .filter((f) => f.id !== mergeModalFamily.id)
                     .map((f) => (
                       <option key={f.id} value={f.id}>
-                        {f.familyCode} — Head: {f.headName}
+                        {f.familyCode} · Head: {f.headName}
                       </option>
                     ))}
                 </select>
               </div>
               <div>
-                <label className="block font-medium text-slate-700 mb-1">Audit Reason (Required)</label>
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">
+                  Audit reason
+                </label>
                 <input
                   type="text"
                   value={auditReason}
                   onChange={(e) => setAuditReason(e.target.value)}
                   placeholder="e.g., Duplicate household entry for same residence"
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                  className="w-full rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-slate-900 dark:text-zinc-100 focus:border-blue-600 focus:outline-none"
                 />
               </div>
             </div>
-            <div className="flex justify-end gap-2">
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-zinc-800">
               <button
                 type="button"
                 onClick={() => setMergeModalFamily(null)}
-                className="rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700"
+                className="rounded-lg border border-slate-200 dark:border-zinc-700 px-4 py-2 text-xs font-medium text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800"
               >
                 Cancel
               </button>
@@ -537,9 +579,9 @@ export default function FamilyView() {
                   mergeFamilies(mergeModalFamily.id, targetFamilyId, auditReason.trim());
                   setMergeModalFamily(null);
                 }}
-                className="rounded-full bg-[#0071e3] px-4 py-2 text-xs font-semibold text-white disabled:opacity-40"
+                className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40"
               >
-                Confirm Merge
+                Confirm merge
               </button>
             </div>
           </div>
@@ -548,64 +590,74 @@ export default function FamilyView() {
 
       {/* Modal 4: Printable Family Verification Sheet */}
       {printSheetFamily && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-[1px] p-4">
+          <div className="w-full max-w-2xl rounded-xl bg-white dark:bg-zinc-900 p-6 shadow-xl border border-slate-200 dark:border-zinc-800 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-200 dark:border-zinc-800 pb-3">
               <div>
-                <h3 className="text-base font-bold text-slate-900">
-                  AC-31 THOUBAL — Field Household Verification Sheet ({printSheetFamily.familyCode})
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
+                  AC-31 Thoubal field household verification sheet ({printSheetFamily.familyCode})
                 </h3>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
                   Address: {printSheetFamily.address} · Head: {printSheetFamily.headName}
                 </p>
               </div>
-              <button type="button" onClick={() => setPrintSheetFamily(null)}>
-                <X className="h-4 w-4 text-slate-500" />
+              <button
+                type="button"
+                onClick={() => setPrintSheetFamily(null)}
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-zinc-200"
+              >
+                <X className="h-4 w-4" />
               </button>
             </div>
 
-            <table className="w-full text-left border border-slate-200 text-xs">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  <th className="p-2">Sl.</th>
-                  <th className="p-2">EPIC No.</th>
-                  <th className="p-2">Voter Name</th>
-                  <th className="p-2">Relation</th>
-                  <th className="p-2">Age/Sex</th>
-                  <th className="p-2">Current Status</th>
-                  <th className="p-2">Field Signature / Tick</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200">
-                {(membersByFamily.get(printSheetFamily.id) || []).map((m) => (
-                  <tr key={m.id}>
-                    <td className="p-2 font-mono">{m.serialNo}</td>
-                    <td className="p-2 font-mono font-semibold">{m.epicNo}</td>
-                    <td className="p-2 font-medium">{m.name}</td>
-                    <td className="p-2">{m.relationToHead}</td>
-                    <td className="p-2 font-mono">{m.age}/{m.gender}</td>
-                    <td className="p-2">{m.status}</td>
-                    <td className="p-2 text-slate-300">[ &nbsp; ] Present &nbsp; [ &nbsp; ] Issue</td>
+            <div className="overflow-x-auto border border-slate-200 dark:border-zinc-800 rounded-lg">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 dark:bg-zinc-950 border-b border-slate-200 dark:border-zinc-800 text-slate-600 dark:text-zinc-400">
+                  <tr>
+                    <th className="p-2.5 font-medium">Sl.</th>
+                    <th className="p-2.5 font-medium">EPIC No.</th>
+                    <th className="p-2.5 font-medium">Voter name</th>
+                    <th className="p-2.5 font-medium">Relation</th>
+                    <th className="p-2.5 font-medium">Age / Sex</th>
+                    <th className="p-2.5 font-medium">Status</th>
+                    <th className="p-2.5 font-medium">Field verification tick</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-zinc-800 text-slate-800 dark:text-zinc-200">
+                  {(membersByFamily.get(printSheetFamily.id) || []).map((m) => (
+                    <tr key={m.id}>
+                      <td className="p-2.5 font-mono tabular-nums">{Number.isFinite(m.serialNo) ? m.serialNo : '-'}</td>
+                      <td className="p-2.5 font-mono font-semibold">{m.epicNo}</td>
+                      <td className="p-2.5 font-medium">{m.name}</td>
+                      <td className="p-2.5">{m.relationToHead}</td>
+                      <td className="p-2.5 font-mono tabular-nums">
+                        {Number.isFinite(m.age) ? m.age : '-'}/{m.gender}
+                      </td>
+                      <td className="p-2.5">{m.status}</td>
+                      <td className="p-2.5 text-slate-400 dark:text-zinc-500 font-mono">
+                        [ &nbsp; ] Present &nbsp; [ &nbsp; ] Issue
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setPrintSheetFamily(null)}
-                className="rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700"
+                className="rounded-lg border border-slate-200 dark:border-zinc-700 px-4 py-2 text-xs font-medium text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800"
               >
                 Close
               </button>
               <button
                 type="button"
                 onClick={() => window.print()}
-                className="inline-flex items-center gap-1.5 rounded-full bg-[#0071e3] px-4 py-2 text-xs font-semibold text-white"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-medium text-white hover:bg-blue-700"
               >
                 <Printer className="h-3.5 w-3.5" />
-                Print Sheet
+                <span>Print sheet</span>
               </button>
             </div>
           </div>

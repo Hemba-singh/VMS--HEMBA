@@ -263,6 +263,8 @@ export interface UnassignedImportRecord {
   name: string;
   fatherName: string;
   motherName: string;
+  spouseName?: string;
+  houseNo?: string;
   age: number;
   gender: Gender;
   rawAddress: string;

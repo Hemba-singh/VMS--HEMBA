@@ -20,7 +20,6 @@ import {
   Sparkles,
   Bookmark,
   RotateCcw,
-  Users,
   MapPin,
   BellRing,
   Send,
@@ -90,6 +89,8 @@ export default function VoterListView() {
     setActiveTab,
     revealFullPhone,
     canEditVoter,
+    canImportData,
+    canRequestExport,
     currentUser,
     sendVoterNotification,
     sendBulkVoterNotifications,
@@ -226,7 +227,7 @@ export default function VoterListView() {
     setActiveNotifyVoterId(voter.id);
   };
 
-  // Base voters filtered by non-status filters so the 4 Status Cards show live counts for the current scope/filters
+  // Base voters filtered by non-status filters so the 4 Status Cards show live counts
   const votersBeforeStatusCard = useMemo(() => {
     return voters.filter((v) => {
       if (selectedPollingStationFilter.length > 0 && !selectedPollingStationFilter.includes(v.pollingStationId)) {
@@ -236,8 +237,10 @@ export default function VoterListView() {
       if (villagePartFilter !== 'ALL' && v.villagePartId !== villagePartFilter) return false;
       if (selectedFamilyFilter && v.familyId !== selectedFamilyFilter) return false;
       if (genderFilter !== 'ALL' && v.gender !== genderFilter) return false;
-      if (minAge && v.age < Number(minAge)) return false;
-      if (maxAge && v.age > Number(maxAge)) return false;
+      const parsedMinAge = minAge ? Number(minAge) : NaN;
+      const parsedMaxAge = maxAge ? Number(maxAge) : NaN;
+      if (Number.isFinite(parsedMinAge) && v.age < parsedMinAge) return false;
+      if (Number.isFinite(parsedMaxAge) && v.age > parsedMaxAge) return false;
       if (tagFilter !== 'ALL' && !v.tags.includes(tagFilter)) return false;
       if (workerFilter !== 'ALL' && v.assignedWorkerId !== workerFilter) return false;
       if (issueTypeFilter !== 'ALL' && v.issueType !== issueTypeFilter) return false;
@@ -267,7 +270,7 @@ export default function VoterListView() {
     familyMap,
   ]);
 
-  // Live Status Card Totals (Always match the data!)
+  // Live Status Card Totals
   const statusCounts = useMemo(() => {
     let verified = 0;
     let pending = 0;
@@ -316,24 +319,26 @@ export default function VoterListView() {
 
     return [...list].sort((a, b) => {
       let cmp = 0;
-      if (sortField === 'serialNo') cmp = a.serialNo - b.serialNo;
-      else if (sortField === 'age') cmp = a.age - b.age;
+      if (sortField === 'serialNo') cmp = (Number.isFinite(a.serialNo) ? a.serialNo : 0) - (Number.isFinite(b.serialNo) ? b.serialNo : 0);
+      else if (sortField === 'age') cmp = (Number.isFinite(a.age) ? a.age : 0) - (Number.isFinite(b.age) ? b.age : 0);
       else if (sortField === 'name') cmp = a.name.localeCompare(b.name);
       else if (sortField === 'epicNo') cmp = a.epicNo.localeCompare(b.epicNo);
-      else if (sortField === 'pollingStationId') cmp = a.partNo - b.partNo;
+      else if (sortField === 'pollingStationId') cmp = (Number.isFinite(a.partNo) ? a.partNo : 0) - (Number.isFinite(b.partNo) ? b.partNo : 0);
       else if (sortField === 'status') cmp = a.status.localeCompare(b.status);
       return sortAsc ? cmp : -cmp;
     });
   }, [votersAfterStatusFilter, categoryColorFilter, activityLegendFilter, sortField, sortAsc, tasks, noteCountMap, taskCountMap]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredVoters.length / pageSize));
-  const safePage = Math.min(currentPage, totalPages);
+  const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? pageSize : 25;
+  const totalPages = Math.max(1, Math.ceil(filteredVoters.length / safePageSize));
+  const safePage = Math.max(1, Math.min(Number.isFinite(currentPage) ? currentPage : 1, totalPages));
   const paginatedVoters = useMemo(() => {
-    const start = (safePage - 1) * pageSize;
-    return filteredVoters.slice(start, start + pageSize);
-  }, [filteredVoters, safePage, pageSize]);
+    const start = (safePage - 1) * safePageSize;
+    return filteredVoters.slice(start, start + safePageSize);
+  }, [filteredVoters, safePage, safePageSize]);
 
   const filteredVoterIds = useMemo(() => filteredVoters.map((v) => v.id), [filteredVoters]);
+  const uniqueFamilyCount = useMemo(() => new Set(filteredVoters.map((v) => v.familyId)).size, [filteredVoters]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -359,6 +364,7 @@ export default function VoterListView() {
     setWorkerFilter('ALL');
     setIssueTypeFilter('ALL');
     setNewlyImportedOnly(false);
+    setActivityLegendFilter('ALL');
     setCurrentPage(1);
   };
 
@@ -376,112 +382,145 @@ export default function VoterListView() {
     setSelectedRowIds((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]));
   };
 
-  const statusChipClasses: Record<VoterStatus, string> = {
-    Verified: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    Pending: 'bg-amber-50 text-amber-700 border-amber-200',
-    Issues: 'bg-red-50 text-red-700 border-red-200',
-    New: 'bg-blue-50 text-blue-700 border-blue-200',
-    Removed: 'bg-slate-100 text-slate-600 border-slate-300',
+  const statusTextClass: Record<VoterStatus, string> = {
+    Verified: 'text-emerald-700 dark:text-emerald-400',
+    Pending: 'text-amber-700 dark:text-amber-400',
+    Issues: 'text-red-700 dark:text-red-400',
+    New: 'text-blue-700 dark:text-blue-400',
+    Removed: 'text-slate-500 dark:text-zinc-500',
   };
 
+  const inputClass =
+    'w-full rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-blue-600 focus:outline-none';
+
+  const stationLabel =
+    selectedPollingStationFilter.length === 1
+      ? `PS-${psMap.get(selectedPollingStationFilter[0])?.psNo || ''}`
+      : selectedPollingStationFilter.length > 1
+      ? `${selectedPollingStationFilter.length} stations`
+      : `All ${scopedPollingStations.length} stations`;
+
   return (
-    <div className="space-y-8">
-      {/* Section Header matching NEXUS-31 layout */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
+    <div
+      className={
+        isFullScreen
+          ? 'fixed inset-0 z-40 bg-slate-50 dark:bg-zinc-950 p-6 overflow-y-auto space-y-6'
+          : 'space-y-6'
+      }
+    >
+      {/* Page Header */}
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 dark:border-zinc-800 pb-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight">
-            Voter List - Part {selectedPollingStationFilter.length === 1 ? (psMap.get(selectedPollingStationFilter[0])?.psNo || 12) : selectedPollingStationFilter.length > 1 ? `${selectedPollingStationFilter.length} Parts` : '12'} ({viewMode === 'expanded' ? 'Expanded View' : 'List View'})
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-slate-900 dark:text-zinc-100">
+            Voter list
           </h1>
-          <p className="text-sm font-medium text-slate-500 dark:text-slate-400 mt-1">
-            Total Voters: <span className="font-semibold text-slate-800 dark:text-slate-200 tabular-nums">{filteredVoters.length}</span>
-            {' | '}Total Families: <span className="font-semibold text-slate-800 dark:text-slate-200 tabular-nums">{new Set(filteredVoters.map((v) => v.familyId)).size}</span>
+          <p className="text-xs sm:text-sm text-slate-500 dark:text-zinc-400 mt-1 tabular-nums">
+            <span className="font-medium text-slate-800 dark:text-zinc-200">{filteredVoters.length}</span> voters ·{' '}
+            <span className="font-medium text-slate-800 dark:text-zinc-200">{uniqueFamilyCount}</span> households ·{' '}
+            {stationLabel}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2.5">
+
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => setIsFullScreen((prev) => !prev)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-2xs"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-xs font-medium text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800 whitespace-nowrap shrink-0 transition-colors"
           >
             {isFullScreen ? (
               <>
-                <Minimize2 className="h-4 w-4 text-[#0071e3]" />
-                <span>Exit Full Screen</span>
+                <Minimize2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                <span>Exit full screen</span>
               </>
             ) : (
               <>
-                <Maximize2 className="h-4 w-4 text-[#0071e3]" />
-                <span>Full Screen</span>
+                <Maximize2 className="h-3.5 w-3.5 text-slate-500 dark:text-zinc-400" />
+                <span>Full screen</span>
               </>
             )}
           </button>
+
+          {canImportData && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('import-data')}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-xs font-medium text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800 whitespace-nowrap shrink-0 transition-colors"
+            >
+              <Upload className="h-3.5 w-3.5 text-slate-500 dark:text-zinc-400" />
+              <span>Import</span>
+            </button>
+          )}
+
+          {canRequestExport && (
+            <button
+              type="button"
+              onClick={() => setShowExportModal(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-xs font-medium text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800 whitespace-nowrap shrink-0 transition-colors"
+            >
+              <Download className="h-3.5 w-3.5 text-slate-500 dark:text-zinc-400" />
+              <span>Export</span>
+            </button>
+          )}
+
           {canEditVoter && (
             <button
               type="button"
               onClick={() => setShowAddVoterModal(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#0071e3] px-4 py-2 text-xs font-semibold text-white hover:bg-blue-600 transition-colors shadow-xs"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-2 text-xs font-medium text-white hover:bg-blue-700 whitespace-nowrap shrink-0 transition-colors"
             >
-              <Plus className="h-4 w-4" />
-              <span>Add Voter</span>
+              <Plus className="h-3.5 w-3.5" />
+              <span>Add voter</span>
             </button>
           )}
-          <button
-            type="button"
-            onClick={() => setShowExportModal(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-2xs"
-          >
-            <Download className="h-4 w-4 text-slate-600 dark:text-slate-300" />
-            <span>Export</span>
-          </button>
         </div>
       </div>
 
-      {/* Four Clickable Status Filter Cards (22px rounded corners, 20-24px titles, 13-14px captions) */}
+      {/* 4 Status KPI Filter Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           {
             key: 'Verified' as VoterStatus,
-            label: 'Verified Voters',
+            label: 'Verified voters',
             count: statusCounts.Verified,
             pct: statusCounts.total ? Math.round((statusCounts.Verified / statusCounts.total) * 100) : 0,
             subtitle: 'Confirmed on location with GPS',
             icon: CheckCircle2,
-            activeRing: 'ring-2 ring-[#0071e3]',
-            iconStyle: 'text-emerald-600',
-            countColor: 'text-[#1d1d1f] dark:text-[#f5f5f7]',
+            activeBorder: 'border-blue-600 dark:border-blue-500 ring-1 ring-blue-600 dark:ring-blue-500',
+            iconStyle: 'text-emerald-600 dark:text-emerald-400',
+            countColor: 'text-slate-900 dark:text-zinc-100',
           },
           {
             key: 'Pending' as VoterStatus,
-            label: 'Pending Verification',
+            label: 'Pending verification',
             count: statusCounts.Pending,
             pct: statusCounts.total ? Math.round((statusCounts.Pending / statusCounts.total) * 100) : 0,
             subtitle: 'Assigned to field workers',
             icon: Clock,
-            activeRing: 'ring-2 ring-[#0071e3]',
-            iconStyle: 'text-amber-600',
-            countColor: 'text-[#1d1d1f] dark:text-[#f5f5f7]',
+            activeBorder: 'border-blue-600 dark:border-blue-500 ring-1 ring-blue-600 dark:ring-blue-500',
+            iconStyle: 'text-amber-600 dark:text-amber-400',
+            countColor: 'text-slate-900 dark:text-zinc-100',
           },
           {
             key: 'Issues' as VoterStatus,
-            label: 'Flagged Issues',
+            label: 'Flagged issues',
             count: statusCounts.Issues,
             pct: statusCounts.total ? Math.round((statusCounts.Issues / statusCounts.total) * 100) : 0,
             subtitle: 'Requires BLO resolution',
             icon: AlertTriangle,
-            activeRing: 'ring-2 ring-[#ff3b30]',
-            iconStyle: 'text-[#ff3b30]',
-            countColor: 'text-[#ff3b30]',
+            activeBorder: 'border-red-600 dark:border-red-500 ring-1 ring-red-600 dark:ring-red-500',
+            iconStyle: 'text-red-600 dark:text-red-400',
+            countColor: 'text-red-600 dark:text-red-400',
           },
           {
             key: 'New' as VoterStatus,
-            label: 'Newly Imported',
+            label: 'Newly imported',
             count: statusCounts.New,
             pct: statusCounts.total ? Math.round((statusCounts.New / statusCounts.total) * 100) : 0,
             subtitle: 'Supplemental roll additions',
             icon: Sparkles,
-            activeRing: 'ring-2 ring-[#0071e3]',
-            iconStyle: 'text-[#0071e3]',
-            countColor: 'text-[#0071e3]',
+            activeBorder: 'border-blue-600 dark:border-blue-500 ring-1 ring-blue-600 dark:ring-blue-500',
+            iconStyle: 'text-blue-600 dark:text-blue-400',
+            countColor: 'text-blue-600 dark:text-blue-400',
           },
         ].map((card) => {
           const Icon = card.icon;
@@ -494,24 +533,26 @@ export default function VoterListView() {
                 setStatusCardFilter(isActive ? 'ALL' : card.key);
                 setCurrentPage(1);
               }}
-              className={`text-left rounded-[22px] border border-[#d2d2d7] dark:border-[#38383a] bg-white dark:bg-[#1c1c1e] p-5 transition-all hover:shadow-md ${
-                isActive ? card.activeRing : ''
+              className={`text-left rounded-xl border bg-white dark:bg-zinc-900 p-4 transition-colors ${
+                isActive
+                  ? card.activeBorder
+                  : 'border-slate-200 dark:border-zinc-800 hover:border-slate-300 dark:hover:border-zinc-700'
               }`}
             >
               <div className="flex items-center justify-between">
-                <span className="text-[14px] font-medium text-[#6e6e73] dark:text-[#a1a1a6]">{card.label}</span>
-                <Icon className={`h-5 w-5 ${card.iconStyle}`} />
+                <span className="text-xs font-medium text-slate-500 dark:text-zinc-400">{card.label}</span>
+                <Icon className={`h-4 w-4 ${card.iconStyle}`} />
               </div>
-              <div className="mt-2.5 flex items-baseline gap-2">
-                <span className={`text-[24px] font-semibold tracking-[-0.02em] tabular-nums ${card.countColor}`}>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className={`text-2xl font-semibold tracking-tight tabular-nums ${card.countColor}`}>
                   {card.count.toLocaleString()}
                 </span>
-                <span className="text-[13px] font-normal text-[#6e6e73] dark:text-[#a1a1a6] tabular-nums">({card.pct}%)</span>
+                <span className="text-xs text-slate-500 dark:text-zinc-400 tabular-nums">{card.pct}%</span>
               </div>
-              <div className="mt-1.5 flex items-center justify-between">
-                <span className="text-[13px] text-[#6e6e73] dark:text-[#a1a1a6]">{card.subtitle}</span>
+              <div className="mt-1 flex items-center justify-between gap-2">
+                <span className="text-xs text-slate-500 dark:text-zinc-400 truncate">{card.subtitle}</span>
                 {isActive && (
-                  <span className="text-[13px] font-semibold text-[#0071e3]">Filtered</span>
+                  <span className="text-xs font-medium text-blue-600 dark:text-blue-400 shrink-0">Active</span>
                 )}
               </div>
             </button>
@@ -519,27 +560,27 @@ export default function VoterListView() {
         })}
       </div>
 
-      {/* Saved Filters & Quick Views Strip */}
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5">
+      {/* Saved Filters Strip */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-4 py-2.5">
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 mr-1">
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-zinc-400 mr-1">
             <Bookmark className="h-3.5 w-3.5" />
-            Saved Views:
+            Views
           </span>
           <button
             type="button"
             onClick={handleClearAllFilters}
-            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+            className={`px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
               statusCardFilter === 'ALL' &&
               categoryColorFilter === 'ALL' &&
               !minAge &&
               selectedPollingStationFilter.length === 0 &&
               !selectedFamilyFilter
-                ? 'bg-slate-900 text-white'
-                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                ? 'bg-slate-900 dark:bg-zinc-100 text-white dark:text-zinc-900'
+                : 'bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700'
             }`}
           >
-            All Scoped Voters ({voters.length})
+            All scoped ({voters.length})
           </button>
           {savedFilters.map((sf) => (
             <button
@@ -553,29 +594,28 @@ export default function VoterListView() {
                 if (sf.minAge) setMinAge(String(sf.minAge));
                 if (sf.maxAge) setMaxAge(String(sf.maxAge));
               }}
-              className="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors"
+              className="px-3 py-1 rounded-lg text-xs font-medium bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700 whitespace-nowrap transition-colors"
             >
               {sf.name}
             </button>
           ))}
           {selectedFamilyFilter && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 text-blue-800 px-3 py-1 text-xs font-semibold">
-              Family: {familyMap.get(selectedFamilyFilter)?.familyCode || selectedFamilyFilter}
-              <button type="button" onClick={() => setSelectedFamilyFilter(null)}>
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-900/60 text-blue-700 dark:text-blue-400 px-2.5 py-1 text-xs font-medium">
+              Family {familyMap.get(selectedFamilyFilter)?.familyCode || selectedFamilyFilter}
+              <button type="button" onClick={() => setSelectedFamilyFilter(null)} aria-label="Clear family filter">
                 <X className="h-3 w-3" />
               </button>
             </span>
           )}
         </div>
 
-        {/* Save current filter */}
         <div className="flex items-center gap-1.5">
           <input
             type="text"
             value={newFilterName}
             onChange={(e) => setNewFilterName(e.target.value)}
-            placeholder="Save current filter as..."
-            className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs text-slate-800 w-40"
+            placeholder="Save view as..."
+            className="rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2.5 py-1 text-xs text-slate-800 dark:text-zinc-200 placeholder:text-slate-400 dark:placeholder:text-zinc-500 w-36 focus:border-blue-600 focus:outline-none"
           />
           <button
             type="button"
@@ -586,25 +626,24 @@ export default function VoterListView() {
                 status: statusCardFilter,
                 category: categoryColorFilter,
                 pollingStationIds: selectedPollingStationFilter.length > 0 ? selectedPollingStationFilter : undefined,
-                minAge: minAge ? Number(minAge) : undefined,
-                maxAge: maxAge ? Number(maxAge) : undefined,
+                minAge: minAge && Number.isFinite(Number(minAge)) ? Number(minAge) : undefined,
+                maxAge: maxAge && Number.isFinite(Number(maxAge)) ? Number(maxAge) : undefined,
               });
               setNewFilterName('');
             }}
-            className="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-50 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+            className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-800 text-xs font-medium text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-700 disabled:opacity-40 whitespace-nowrap"
           >
             Save
           </button>
         </div>
       </div>
 
-      {/* Main Search, Hierarchy Filters, and Action Bar */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          {/* Left: Fuzzy Search + Multi-select Polling Station + Village + Pure Color Dots Filter */}
+      {/* Main Search & Scoped Filter Bar */}
+      <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
           <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
-            <div className="relative flex-1 min-w-[240px] max-w-md">
-              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <div className="relative flex-1 min-w-[220px] max-w-sm">
+              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 dark:text-zinc-500" />
               <input
                 type="text"
                 value={globalSearch}
@@ -612,15 +651,15 @@ export default function VoterListView() {
                   setGlobalSearch(e.target.value);
                   setCurrentPage(1);
                 }}
-                placeholder="Filter by name, house number, or voter ID..."
-                className="w-full rounded-xl border border-slate-300 bg-white pl-9 pr-8 py-2 text-xs text-slate-900 focus:border-[#0071e3] focus:outline-none"
+                placeholder="Search name, house no, or EPIC..."
+                className="w-full rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 pl-8 pr-8 py-2 text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-blue-600 focus:outline-none"
               />
               {globalSearch && (
                 <button
                   type="button"
                   onClick={() => setGlobalSearch('')}
                   aria-label="Clear search"
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-300"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -632,25 +671,27 @@ export default function VoterListView() {
               <button
                 type="button"
                 onClick={() => setShowPsMultiSelect((v) => !v)}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-xs font-medium text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800 whitespace-nowrap"
               >
-                <MapPin className="h-3.5 w-3.5 text-[#0071e3]" />
+                <MapPin className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
                 <span>
                   {selectedPollingStationFilter.length === 0
-                    ? `All Stations (${scopedPollingStations.length})`
-                    : `${selectedPollingStationFilter.length} Station(s) Selected`}
+                    ? `All stations (${scopedPollingStations.length})`
+                    : `${selectedPollingStationFilter.length} selected`}
                 </span>
               </button>
               {showPsMultiSelect && (
-                <div className="absolute left-0 mt-1.5 z-30 w-72 rounded-xl border border-slate-200 bg-white p-3 shadow-xl space-y-2">
-                  <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                    <span className="text-xs font-bold text-slate-800">Select Polling Stations (PS 1–{scopedPollingStations.length})</span>
+                <div className="absolute left-0 mt-1.5 z-30 w-72 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-3 shadow-xl space-y-2">
+                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-zinc-800 pb-2">
+                    <span className="text-xs font-semibold text-slate-800 dark:text-zinc-200">
+                      Polling stations ({scopedPollingStations.length})
+                    </span>
                     <button
                       type="button"
                       onClick={() => setSelectedPollingStationFilter([])}
-                      className="text-[11px] text-[#0071e3] hover:underline"
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
                     >
-                      Select All
+                      All
                     </button>
                   </div>
                   <div className="max-h-56 overflow-y-auto space-y-1 pr-1">
@@ -659,7 +700,7 @@ export default function VoterListView() {
                       return (
                         <label
                           key={ps.id}
-                          className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-slate-50 cursor-pointer"
+                          className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer"
                         >
                           <input
                             type="checkbox"
@@ -672,10 +713,10 @@ export default function VoterListView() {
                               );
                               setCurrentPage(1);
                             }}
-                            className="rounded border-slate-300 text-[#0071e3]"
+                            className="rounded border-slate-300 dark:border-zinc-600 text-blue-600"
                           />
-                          <span className="font-mono font-semibold text-slate-800">PS-{ps.psNo}</span>
-                          <span className="text-slate-600 truncate">{ps.name.replace(/^31\/\d+\s*/, '')}</span>
+                          <span className="font-mono font-semibold text-slate-800 dark:text-zinc-200">PS-{ps.psNo}</span>
+                          <span className="text-slate-600 dark:text-zinc-400 truncate">{ps.name.replace(/^31\/\d+\s*/, '')}</span>
                         </label>
                       );
                     })}
@@ -684,7 +725,7 @@ export default function VoterListView() {
                     <button
                       type="button"
                       onClick={() => setShowPsMultiSelect(false)}
-                      className="px-3 py-1 rounded-lg bg-slate-900 text-white text-xs font-medium"
+                      className="px-3 py-1 rounded-lg bg-slate-900 dark:bg-zinc-100 text-white dark:text-zinc-900 text-xs font-medium"
                     >
                       Done
                     </button>
@@ -701,9 +742,9 @@ export default function VoterListView() {
                 setVillagePartFilter('ALL');
                 setCurrentPage(1);
               }}
-              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700"
+              className="rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-xs font-medium text-slate-700 dark:text-zinc-200 focus:border-blue-600 focus:outline-none"
             >
-              <option value="ALL">All 12 Villages</option>
+              <option value="ALL">All {villages.length} villages</option>
               {villages.map((vil) => (
                 <option key={vil.id} value={vil.id}>
                   {vil.name} ({vil.code})
@@ -711,8 +752,8 @@ export default function VoterListView() {
               ))}
             </select>
 
-            {/* Pure Color Dots Filter (No text naming) */}
-            <div className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-2.5 py-1.5">
+            {/* Pure Color Dots Filter */}
+            <div className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2.5 py-2">
               {VOTER_CATEGORIES.map((cat) => {
                 const st = getVoterCategoryStyles(cat);
                 const isSelected = categoryColorFilter === cat;
@@ -725,8 +766,8 @@ export default function VoterListView() {
                       setCategoryColorFilter(isSelected ? 'ALL' : cat);
                       setCurrentPage(1);
                     }}
-                    className={`h-4 w-4 rounded-full transition-transform ${st.dot} ${
-                      isSelected ? 'scale-125 ring-2 ring-offset-1 ring-slate-900' : 'opacity-75 hover:opacity-100'
+                    className={`h-3.5 w-3.5 rounded-full transition-transform ${st.dot} ${
+                      isSelected ? 'scale-125 ring-2 ring-offset-1 dark:ring-offset-zinc-950 ring-slate-900 dark:ring-zinc-100' : 'opacity-75 hover:opacity-100'
                     }`}
                   />
                 );
@@ -738,7 +779,8 @@ export default function VoterListView() {
                     setCategoryColorFilter('ALL');
                     setCurrentPage(1);
                   }}
-                  className="ml-0.5 text-slate-400 hover:text-slate-700"
+                  aria-label="Reset color filter"
+                  className="ml-0.5 text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-200"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
@@ -748,99 +790,68 @@ export default function VoterListView() {
             <button
               type="button"
               onClick={() => setShowFiltersPanel((v) => !v)}
-              className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
                 showFiltersPanel
-                  ? 'border-[#0071e3] bg-blue-50 text-[#0071e3]'
-                  : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                  ? 'border-blue-600 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400'
+                  : 'border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800'
               }`}
             >
               <Filter className="h-3.5 w-3.5" />
-              More Filters
+              More filters
             </button>
 
             <button
               type="button"
               onClick={handleClearAllFilters}
-              className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100"
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950 px-3 py-2 text-xs font-medium text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 whitespace-nowrap"
             >
               <RotateCcw className="h-3.5 w-3.5" />
               Clear
             </button>
           </div>
 
-          {/* Right: Column Show/Hide, Add Voter, Import, Export */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setShowColumnMenu((v) => !v)}
-                className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
-              >
-                <Columns className="h-3.5 w-3.5" />
-                Columns
-              </button>
-              {showColumnMenu && (
-                <div className="absolute right-0 mt-1.5 z-30 w-56 rounded-xl border border-slate-200 bg-white p-3 shadow-xl space-y-1.5">
-                  <div className="text-xs font-bold text-slate-800 pb-1 border-b border-slate-100">
-                    Show / Hide Columns
-                  </div>
-                  {(Object.keys(visibleCols) as Array<keyof typeof visibleCols>).map((colKey) => (
-                    <label key={colKey} className="flex items-center gap-2 text-xs text-slate-700 py-1 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={visibleCols[colKey]}
-                        onChange={() => setVisibleCols((prev) => ({ ...prev, [colKey]: !prev[colKey] }))}
-                        className="rounded border-slate-300"
-                      />
-                      <span className="capitalize">{colKey.replace(/([A-Z])/g, ' $1')}</span>
-                    </label>
-                  ))}
+          {/* Right: Column Show/Hide Menu */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowColumnMenu((v) => !v)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-xs font-medium text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800 whitespace-nowrap"
+            >
+              <Columns className="h-3.5 w-3.5" />
+              Columns
+            </button>
+            {showColumnMenu && (
+              <div className="absolute right-0 mt-1.5 z-30 w-52 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-3 shadow-xl space-y-1">
+                <div className="text-xs font-semibold text-slate-800 dark:text-zinc-200 pb-1.5 border-b border-slate-100 dark:border-zinc-800">
+                  Show or hide columns
                 </div>
-              )}
-            </div>
-
-            {canEditVoter && (
-              <button
-                type="button"
-                onClick={() => setShowAddVoterModal(true)}
-                className="inline-flex items-center gap-1.5 rounded-full bg-[#0071e3] px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Add Voter
-              </button>
+                {(Object.keys(visibleCols) as Array<keyof typeof visibleCols>).map((colKey) => (
+                  <label key={colKey} className="flex items-center gap-2 text-xs text-slate-700 dark:text-zinc-300 py-1 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={visibleCols[colKey]}
+                      onChange={() => setVisibleCols((prev) => ({ ...prev, [colKey]: !prev[colKey] }))}
+                      className="rounded border-slate-300 dark:border-zinc-600 text-blue-600"
+                    />
+                    <span className="capitalize">{colKey.replace(/([A-Z])/g, ' $1')}</span>
+                  </label>
+                ))}
+              </div>
             )}
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('import-data')}
-              className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-slate-50 px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
-            >
-              <Upload className="h-3.5 w-3.5" />
-              Import
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setShowExportModal(true)}
-              className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              <Download className="h-3.5 w-3.5" />
-              Export
-            </button>
           </div>
         </div>
 
         {/* Expanded Filter Drawer Panel */}
         {showFiltersPanel && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 pt-3 border-t border-slate-200 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 pt-3 border-t border-slate-200 dark:border-zinc-800 text-xs">
             <div>
-              <label className="block text-[11px] font-medium text-slate-500 mb-1">Village Part (Leikai)</label>
+              <label className="block font-medium text-slate-500 dark:text-zinc-400 mb-1">Leikai / part</label>
               <select
                 value={villagePartFilter}
                 onChange={(e) => setVillagePartFilter(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-slate-800"
+                className={inputClass}
               >
-                <option value="ALL">All Leikais</option>
+                <option value="ALL">All parts</option>
                 {villageParts
                   .filter((vp) => villageFilter === 'ALL' || vp.villageId === villageFilter)
                   .map((vp) => (
@@ -852,13 +863,13 @@ export default function VoterListView() {
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-slate-500 mb-1">Gender</label>
+              <label className="block font-medium text-slate-500 dark:text-zinc-400 mb-1">Gender</label>
               <select
                 value={genderFilter}
                 onChange={(e) => setGenderFilter(e.target.value as Gender | 'ALL')}
-                className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-slate-800"
+                className={inputClass}
               >
-                <option value="ALL">All Genders</option>
+                <option value="ALL">All</option>
                 <option value="M">Male (M)</option>
                 <option value="F">Female (F)</option>
                 <option value="O">Other (O)</option>
@@ -866,33 +877,33 @@ export default function VoterListView() {
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-slate-500 mb-1">Age Range (Min–Max)</label>
+              <label className="block font-medium text-slate-500 dark:text-zinc-400 mb-1">Age range</label>
               <div className="flex items-center gap-1">
                 <input
                   type="number"
                   placeholder="18"
                   value={minAge}
                   onChange={(e) => setMinAge(e.target.value)}
-                  className="w-1/2 rounded-lg border border-slate-300 px-2 py-1.5 text-slate-800 tabular-nums"
+                  className={`${inputClass} w-1/2 px-2 tabular-nums`}
                 />
                 <input
                   type="number"
                   placeholder="99"
                   value={maxAge}
                   onChange={(e) => setMaxAge(e.target.value)}
-                  className="w-1/2 rounded-lg border border-slate-300 px-2 py-1.5 text-slate-800 tabular-nums"
+                  className={`${inputClass} w-1/2 px-2 tabular-nums`}
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-slate-500 mb-1">Tag</label>
+              <label className="block font-medium text-slate-500 dark:text-zinc-400 mb-1">Tag</label>
               <select
                 value={tagFilter}
                 onChange={(e) => setTagFilter(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-slate-800"
+                className={inputClass}
               >
-                <option value="ALL">Any Tag</option>
+                <option value="ALL">Any tag</option>
                 {availableTags.map((t) => (
                   <option key={t} value={t}>
                     {t}
@@ -902,13 +913,13 @@ export default function VoterListView() {
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-slate-500 mb-1">Assigned Worker</label>
+              <label className="block font-medium text-slate-500 dark:text-zinc-400 mb-1">Assigned worker</label>
               <select
                 value={workerFilter}
                 onChange={(e) => setWorkerFilter(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-slate-800"
+                className={inputClass}
               >
-                <option value="ALL">All Workers</option>
+                <option value="ALL">All workers</option>
                 {users
                   .filter((u) => u.role === 'Field Worker')
                   .map((u) => (
@@ -920,13 +931,13 @@ export default function VoterListView() {
             </div>
 
             <div>
-              <label className="block text-[11px] font-medium text-slate-500 mb-1">Issue Type</label>
+              <label className="block font-medium text-slate-500 dark:text-zinc-400 mb-1">Issue type</label>
               <select
                 value={issueTypeFilter}
                 onChange={(e) => setIssueTypeFilter(e.target.value as IssueType | 'ALL')}
-                className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-slate-800"
+                className={inputClass}
               >
-                <option value="ALL">All Issue Types</option>
+                <option value="ALL">All types</option>
                 {issueTypes.map((it) => (
                   <option key={it} value={it}>
                     {it}
@@ -935,15 +946,15 @@ export default function VoterListView() {
               </select>
             </div>
 
-            <div className="flex items-end pb-1">
-              <label className="flex items-center gap-2 cursor-pointer text-slate-700 font-medium">
+            <div className="flex items-end pb-1.5">
+              <label className="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-zinc-300 font-medium">
                 <input
                   type="checkbox"
                   checked={newlyImportedOnly}
                   onChange={(e) => setNewlyImportedOnly(e.target.checked)}
-                  className="rounded border-slate-300 text-[#0071e3]"
+                  className="rounded border-slate-300 dark:border-zinc-600 text-blue-600"
                 />
-                <span>Newly Imported Only</span>
+                <span>Newly imported</span>
               </label>
             </div>
           </div>
@@ -951,149 +962,153 @@ export default function VoterListView() {
 
         {/* Bulk Actions Bar when rows are selected */}
         {selectedRowIds.length > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-900 px-4 py-2.5 text-white text-xs">
-            <div className="flex items-center gap-2">
-              <span className="font-semibold tabular-nums">{selectedRowIds.length} voter(s) selected</span>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-900 dark:bg-zinc-800 border border-slate-800 dark:border-zinc-700 px-4 py-2.5 text-white text-xs">
+            <div className="flex items-center gap-3">
+              <span className="font-semibold tabular-nums">{selectedRowIds.length} selected</span>
               <button
                 type="button"
                 onClick={() => setSelectedRowIds([])}
-                className="text-slate-300 hover:text-white underline ml-2"
+                className="text-slate-300 hover:text-white underline"
               >
-                Clear selection
+                Clear
               </button>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {/* Pure Color Bulk Assignment (4 Color Dots, no text labels) */}
-              <div className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800 border border-slate-700 px-2.5 py-1.5">
-                {VOTER_CATEGORIES.map((cat) => {
-                  const st = getVoterCategoryStyles(cat);
-                  return (
-                    <button
-                      key={cat}
-                      type="button"
-                      aria-label="Apply color to selected"
-                      onClick={() => bulkUpdateVoters(selectedRowIds, { category: cat })}
-                      className={`h-4 w-4 rounded-full ${st.dot} ring-1 ring-white/40 hover:scale-125 transition-transform`}
-                    />
-                  );
-                })}
-              </div>
+              {canEditVoter && (
+                <>
+                  <div className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800 dark:bg-zinc-900 border border-slate-700 px-2.5 py-1.5">
+                    {VOTER_CATEGORIES.map((cat) => {
+                      const st = getVoterCategoryStyles(cat);
+                      return (
+                        <button
+                          key={cat}
+                          type="button"
+                          aria-label="Apply color to selected"
+                          onClick={() => bulkUpdateVoters(selectedRowIds, { category: cat })}
+                          className={`h-3.5 w-3.5 rounded-full ${st.dot} ring-1 ring-white/40 hover:scale-125 transition-transform`}
+                        />
+                      );
+                    })}
+                  </div>
 
-              <select
-                defaultValue=""
-                onChange={(e) => {
-                  if (!e.target.value) return;
-                  bulkUpdateVoters(selectedRowIds, { status: e.target.value as VoterStatus });
-                  e.target.value = '';
-                }}
-                className="rounded-lg bg-slate-800 border border-slate-700 px-2.5 py-1.5 text-xs text-white"
-              >
-                <option value="" disabled>
-                  Bulk Change Status...
-                </option>
-                <option value="Verified">Mark Verified</option>
-                <option value="Pending">Mark Pending</option>
-                <option value="Issues">Mark Issue</option>
-              </select>
-
-              <select
-                defaultValue=""
-                onChange={(e) => {
-                  if (!e.target.value) return;
-                  bulkUpdateVoters(selectedRowIds, { assignedWorkerId: e.target.value });
-                  e.target.value = '';
-                }}
-                className="rounded-lg bg-slate-800 border border-slate-700 px-2.5 py-1.5 text-xs text-white"
-              >
-                <option value="" disabled>
-                  Assign Field Worker...
-                </option>
-                {users
-                  .filter((u) => u.role === 'Field Worker')
-                  .map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name}
+                  <select
+                    defaultValue=""
+                    onChange={(e) => {
+                      if (!e.target.value) return;
+                      bulkUpdateVoters(selectedRowIds, { status: e.target.value as VoterStatus });
+                      e.target.value = '';
+                    }}
+                    className="rounded-lg bg-slate-800 dark:bg-zinc-900 border border-slate-700 px-2.5 py-1.5 text-xs text-white"
+                  >
+                    <option value="" disabled>
+                      Set status
                     </option>
-                  ))}
-              </select>
+                    <option value="Verified">Mark verified</option>
+                    <option value="Pending">Mark pending</option>
+                    <option value="Issues">Mark issue</option>
+                  </select>
 
-              <select
-                defaultValue=""
-                onChange={(e) => {
-                  if (!e.target.value) return;
-                  bulkUpdateVoters(selectedRowIds, { addTag: e.target.value });
-                  e.target.value = '';
-                }}
-                className="rounded-lg bg-slate-800 border border-slate-700 px-2.5 py-1.5 text-xs text-white"
-              >
-                <option value="" disabled>
-                  Add Tag...
-                </option>
-                {availableTags.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
+                  <select
+                    defaultValue=""
+                    onChange={(e) => {
+                      if (!e.target.value) return;
+                      bulkUpdateVoters(selectedRowIds, { assignedWorkerId: e.target.value });
+                      e.target.value = '';
+                    }}
+                    className="rounded-lg bg-slate-800 dark:bg-zinc-900 border border-slate-700 px-2.5 py-1.5 text-xs text-white"
+                  >
+                    <option value="" disabled>
+                      Assign worker
+                    </option>
+                    {users
+                      .filter((u) => u.role === 'Field Worker')
+                      .map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name}
+                        </option>
+                      ))}
+                  </select>
 
-              <button
-                type="button"
-                onClick={() => setShowBulkMoveModal(true)}
-                className="rounded-lg bg-slate-800 border border-slate-700 px-3 py-1.5 hover:bg-slate-700"
-              >
-                Move to Polling Station
-              </button>
+                  <select
+                    defaultValue=""
+                    onChange={(e) => {
+                      if (!e.target.value) return;
+                      bulkUpdateVoters(selectedRowIds, { addTag: e.target.value });
+                      e.target.value = '';
+                    }}
+                    className="rounded-lg bg-slate-800 dark:bg-zinc-900 border border-slate-700 px-2.5 py-1.5 text-xs text-white"
+                  >
+                    <option value="" disabled>
+                      Add tag
+                    </option>
+                    {availableTags.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
 
-              <button
-                type="button"
-                onClick={() => setShowBulkNotifyModal(true)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 font-semibold text-white hover:bg-emerald-500"
-              >
-                <BellRing className="h-3.5 w-3.5" />
-                <span>Notify Selected ({selectedRowIds.length})</span>
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowBulkMoveModal(true)}
+                    className="rounded-lg bg-slate-800 dark:bg-zinc-900 border border-slate-700 px-3 py-1.5 hover:bg-slate-700 dark:hover:bg-zinc-700 whitespace-nowrap"
+                  >
+                    Move station
+                  </button>
 
-              <button
-                type="button"
-                onClick={() => setShowExportModal(true)}
-                className="rounded-lg bg-[#0071e3] px-3 py-1.5 font-semibold text-white hover:bg-blue-600"
-              >
-                Export Selected
-              </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowBulkNotifyModal(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 font-medium text-white hover:bg-emerald-500 whitespace-nowrap"
+                  >
+                    <BellRing className="h-3.5 w-3.5" />
+                    <span>Notify ({selectedRowIds.length})</span>
+                  </button>
+                </>
+              )}
+
+              {canRequestExport && (
+                <button
+                  type="button"
+                  onClick={() => setShowExportModal(true)}
+                  className="rounded-lg bg-blue-600 px-3 py-1.5 font-medium text-white hover:bg-blue-500 whitespace-nowrap"
+                >
+                  Export selected
+                </button>
+              )}
             </div>
           </div>
         )}
       </div>
 
-      {/* Active Search & Filter Banner */}
+      {/* Active Search Banner */}
       {globalSearch.trim() && (
-        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 rounded-xl bg-blue-50/80 border border-blue-200 text-xs text-blue-900 shadow-2xs">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 rounded-xl bg-blue-50/80 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900/60 text-xs text-blue-900 dark:text-blue-200">
           <div className="flex items-center gap-2">
-            <Search className="h-4 w-4 text-[#0071e3] shrink-0" />
+            <Search className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 shrink-0" />
             <span>
-              Filtering by{' '}
-              <span className="font-semibold text-slate-800">
+              Matching{' '}
+              <span className="font-medium">
                 {searchScope === 'name'
-                  ? 'Name'
+                  ? 'name'
                   : searchScope === 'houseNo'
-                  ? 'House Number'
+                  ? 'house number'
                   : searchScope === 'voterId'
-                  ? 'Voter ID / EPIC'
-                  : 'Name, House No, or Voter ID'}
-              </span>
-              :{' '}
-              <strong className="font-semibold underline decoration-blue-400">&ldquo;{globalSearch.trim()}&rdquo;</strong>
-              {' '}({filteredVoters.length} {filteredVoters.length === 1 ? 'record found' : 'records found'})
+                  ? 'EPIC / voter ID'
+                  : 'all fields'}
+              </span>{' '}
+              for <strong className="font-semibold">&ldquo;{globalSearch.trim()}&rdquo;</strong>{' '}
+              <span className="tabular-nums">({filteredVoters.length} found)</span>
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="inline-flex rounded-lg bg-white/80 p-0.5 border border-blue-200 text-[11px]">
+            <div className="inline-flex rounded-lg bg-white dark:bg-zinc-900 p-0.5 border border-blue-200 dark:border-zinc-700 text-xs">
               {(
                 [
                   { id: 'all', label: 'All' },
                   { id: 'name', label: 'Name' },
-                  { id: 'houseNo', label: 'House No' },
+                  { id: 'houseNo', label: 'House no' },
                   { id: 'voterId', label: 'Voter ID' },
                 ] as const
               ).map((scope) => (
@@ -1103,8 +1118,8 @@ export default function VoterListView() {
                   onClick={() => setSearchScope(scope.id)}
                   className={`px-2 py-0.5 rounded-md font-medium transition-colors ${
                     searchScope === scope.id
-                      ? 'bg-[#0071e3] text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100'
                   }`}
                 >
                   {scope.label}
@@ -1114,7 +1129,7 @@ export default function VoterListView() {
             <button
               type="button"
               onClick={() => setGlobalSearch('')}
-              className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#0071e3] hover:text-blue-800 bg-white px-2.5 py-1 rounded-lg border border-blue-200 shadow-2xs transition-colors"
+              className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 dark:text-blue-400 bg-white dark:bg-zinc-900 px-2.5 py-1 rounded-lg border border-blue-200 dark:border-zinc-700 hover:bg-blue-50 dark:hover:bg-zinc-800"
             >
               <X className="h-3 w-3" />
               Clear
@@ -1123,11 +1138,10 @@ export default function VoterListView() {
         </div>
       )}
 
-      {/* View Switcher, Rows-per-page & Activity Status Legend from Reference Screenshot */}
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xs">
-        {/* Left: View Mode Toggle & Rows per page */}
+      {/* View Switcher & Activity Filter Strip */}
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800">
         <div className="flex flex-wrap items-center gap-3">
-          <div className="inline-flex rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 p-0.5 shadow-2xs">
+          <div className="inline-flex rounded-lg border border-slate-200 dark:border-zinc-700 bg-slate-100 dark:bg-zinc-950 p-0.5">
             <button
               type="button"
               onClick={() => {
@@ -1135,14 +1149,14 @@ export default function VoterListView() {
                 setPageSize(70);
                 setCurrentPage(1);
               }}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
                 viewMode === 'expanded'
-                  ? 'bg-[#0071e3] text-white shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+                  ? 'bg-white dark:bg-zinc-800 text-slate-900 dark:text-zinc-100 shadow-2xs'
+                  : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100'
               }`}
             >
               <LayoutGrid className="h-3.5 w-3.5" />
-              <span>Expanded View</span>
+              <span>Expanded grid</span>
             </button>
             <button
               type="button"
@@ -1151,28 +1165,31 @@ export default function VoterListView() {
                 setPageSize(25);
                 setCurrentPage(1);
               }}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
                 viewMode === 'list'
-                  ? 'bg-[#0071e3] text-white shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100'
+                  ? 'bg-white dark:bg-zinc-800 text-slate-900 dark:text-zinc-100 shadow-2xs'
+                  : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100'
               }`}
             >
               <List className="h-3.5 w-3.5" />
-              <span>List View</span>
+              <span>List view</span>
             </button>
           </div>
 
-          <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-            <span>Rows:</span>
+          <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-zinc-400">
+            <span>Rows</span>
             <select
-              value={pageSize}
+              value={safePageSize}
               onChange={(e) => {
-                setPageSize(Number(e.target.value));
-                setCurrentPage(1);
+                const next = Number(e.target.value);
+                if (Number.isFinite(next) && next > 0) {
+                  setPageSize(next);
+                  setCurrentPage(1);
+                }
               }}
-              className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-2 py-1 text-xs font-semibold text-slate-700 dark:text-slate-300"
+              className="rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2 py-1 text-xs font-medium text-slate-700 dark:text-zinc-200 tabular-nums"
             >
-              <option value={30}>30</option>
+              <option value={25}>25</option>
               <option value={50}>50</option>
               <option value={70}>70</option>
               <option value={100}>100</option>
@@ -1180,67 +1197,39 @@ export default function VoterListView() {
           </div>
         </div>
 
-        {/* Right: Activity Legend Badges from Reference Screenshot */}
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <button
-            type="button"
-            onClick={() => setActivityLegendFilter((prev) => (prev === 'meeting' ? 'ALL' : 'meeting'))}
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs transition-all ${
-              activityLegendFilter === 'meeting'
-                ? 'bg-red-500 text-white border-red-600 font-bold shadow-xs'
-                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-red-400'
-            }`}
-          >
-            <span className="h-2 w-2 rounded-full bg-red-500" />
-            <span>Meeting Scheduled</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActivityLegendFilter((prev) => (prev === 'notes' ? 'ALL' : 'notes'))}
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs transition-all ${
-              activityLegendFilter === 'notes'
-                ? 'bg-amber-400 text-white border-amber-500 font-bold shadow-xs'
-                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-amber-400'
-            }`}
-          >
-            <span className="h-2 w-2 rounded-full bg-amber-400" />
-            <span>Notes</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActivityLegendFilter((prev) => (prev === 'followup' ? 'ALL' : 'followup'))}
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs transition-all ${
-              activityLegendFilter === 'followup'
-                ? 'bg-[#0071e3] text-white border-blue-600 font-bold shadow-xs'
-                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-blue-400'
-            }`}
-          >
-            <span className="h-2 w-2 rounded-full bg-[#0071e3]" />
-            <span>Follow-up Required</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActivityLegendFilter((prev) => (prev === 'completed' ? 'ALL' : 'completed'))}
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs transition-all ${
-              activityLegendFilter === 'completed'
-                ? 'bg-emerald-500 text-white border-emerald-600 font-bold shadow-xs'
-                : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-emerald-400'
-            }`}
-          >
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            <span>Completed / No Pending</span>
-          </button>
+        {/* Activity Filter Legend */}
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          {[
+            { id: 'meeting' as const, label: 'Meeting', dot: 'bg-red-500', activeBg: 'bg-red-600 text-white border-red-600' },
+            { id: 'notes' as const, label: 'Notes', dot: 'bg-amber-500', activeBg: 'bg-amber-600 text-white border-amber-600' },
+            { id: 'followup' as const, label: 'Follow-up', dot: 'bg-blue-600', activeBg: 'bg-blue-600 text-white border-blue-600' },
+            { id: 'completed' as const, label: 'Completed', dot: 'bg-emerald-500', activeBg: 'bg-emerald-600 text-white border-emerald-600' },
+          ].map((item) => {
+            const active = activityLegendFilter === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setActivityLegendFilter((prev) => (prev === item.id ? 'ALL' : item.id))}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium whitespace-nowrap transition-colors ${
+                  active
+                    ? item.activeBg
+                    : 'bg-white dark:bg-zinc-950 text-slate-700 dark:text-zinc-300 border-slate-200 dark:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800'
+                }`}
+              >
+                <span className={`h-2 w-2 rounded-full ${active ? 'bg-white' : item.dot}`} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
 
           {activityLegendFilter !== 'ALL' && (
             <button
               type="button"
               onClick={() => setActivityLegendFilter('ALL')}
-              className="text-[11px] text-slate-400 hover:text-slate-600 underline ml-1"
+              className="text-xs text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100 underline ml-1"
             >
-              Reset Legend
+              Reset
             </button>
           )}
         </div>
@@ -1248,7 +1237,7 @@ export default function VoterListView() {
 
       {viewMode === 'expanded' ? (
         <div className="space-y-4">
-          {/* 10-Column Grid of Voter Slip Cards matching the Reference Screenshot */}
+          {/* 10-Column Grid of Voter Slip Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-2">
             {paginatedVoters.map((voter) => {
               const isSelected = selectedVoterId === voter.id;
@@ -1260,39 +1249,36 @@ export default function VoterListView() {
               const hasFollowup = tasksCount > 0 && tasks.some((t) => t.voterId === voter.id && t.type !== 'Meeting');
               const isCompleted = voter.status === 'Verified';
 
-              // Soft pastel tint matching screenshot
-              const pastelBgClass =
+              const slipBgClass =
                 currentCategory === VoterCategory.Opponent
-                  ? 'bg-[#fee2e2]/75 dark:bg-red-950/30 border-red-200 dark:border-red-900/40'
+                  ? 'bg-red-50/75 dark:bg-red-950/30 border-red-200/80 dark:border-red-900/50'
                   : currentCategory === VoterCategory.Pending
-                  ? 'bg-[#fef3c7]/75 dark:bg-amber-950/30 border-amber-200 dark:border-amber-900/40'
+                  ? 'bg-amber-50/75 dark:bg-amber-950/30 border-amber-200/80 dark:border-amber-900/50'
                   : currentCategory === VoterCategory.Voter
-                  ? 'bg-[#d1fae5]/75 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/40'
+                  ? 'bg-emerald-50/75 dark:bg-emerald-950/30 border-emerald-200/80 dark:border-emerald-900/50'
                   : currentCategory === VoterCategory.Worker
-                  ? 'bg-[#e0f2fe]/75 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900/40'
-                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800';
+                  ? 'bg-blue-50/75 dark:bg-blue-950/30 border-blue-200/80 dark:border-blue-900/50'
+                  : 'bg-white dark:bg-zinc-900 border-slate-200 dark:border-zinc-800';
 
               return (
                 <div
                   key={voter.id}
                   onClick={() => setSelectedVoterId(voter.id)}
-                  className={`group relative rounded-xl border p-2 text-left cursor-pointer transition-all hover:shadow-md ${pastelBgClass} ${
-                    isSelected
-                      ? 'ring-2 ring-red-500 border-red-500 shadow-md'
-                      : 'hover:border-slate-400 dark:hover:border-slate-600'
+                  className={`group relative rounded-xl border p-2.5 text-left cursor-pointer transition-all hover:border-slate-400 dark:hover:border-zinc-600 ${slipBgClass} ${
+                    isSelected ? 'ring-2 ring-blue-600 border-blue-600' : ''
                   }`}
                 >
-                  {/* Top row: Checkbox, Serial Number, Context menu */}
+                  {/* Top row: Checkbox, Serial Number, Context button */}
                   <div className="flex items-center justify-between gap-1 mb-1">
                     <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={isRowSelected}
                         onChange={() => toggleRowSelect(voter.id)}
-                        className="rounded border-slate-300 text-[#0071e3] h-3.5 w-3.5 cursor-pointer"
+                        className="rounded border-slate-300 dark:border-zinc-600 text-blue-600 h-3.5 w-3.5 cursor-pointer"
                       />
-                      <span className="font-mono text-[11px] font-bold text-slate-700 dark:text-slate-300">
-                        {voter.serialNo}
+                      <span className="font-mono text-xs font-semibold text-slate-700 dark:text-zinc-300 tabular-nums">
+                        {Number.isFinite(voter.serialNo) ? voter.serialNo : '-'}
                       </span>
                     </div>
                     <button
@@ -1301,65 +1287,66 @@ export default function VoterListView() {
                         e.stopPropagation();
                         setSelectedVoterId(voter.id);
                       }}
-                      className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded"
+                      aria-label="Open voter details"
+                      className="text-slate-400 hover:text-slate-700 dark:text-zinc-500 dark:hover:text-zinc-200 p-0.5 rounded"
                     >
                       <MoreVertical className="h-3 w-3" />
                     </button>
                   </div>
 
                   {/* EPIC Number */}
-                  <div className="font-mono text-[11px] font-bold tracking-tight text-slate-800 dark:text-slate-200 truncate">
+                  <div className="font-mono text-[11px] font-medium tracking-tight text-slate-600 dark:text-zinc-400 truncate">
                     {voter.epicNo}
                   </div>
 
-                  {/* Voter Name: STRICTLY UNCOLORED (Neutral text) per user request */}
-                  <div className="text-[12px] font-semibold text-slate-900 dark:text-slate-100 leading-snug line-clamp-2 min-h-[30px] mt-0.5">
+                  {/* Voter Name: Strictly neutral text */}
+                  <div className="text-xs font-semibold text-slate-900 dark:text-zinc-100 leading-snug line-clamp-2 min-h-[32px] mt-0.5">
                     {voter.name}
                   </div>
 
                   {/* Age & Gender */}
-                  <div className="text-[10px] text-slate-500 dark:text-slate-400 font-mono mt-0.5">
-                    {voter.age} {voter.gender}
+                  <div className="text-[11px] text-slate-500 dark:text-zinc-400 font-mono mt-0.5 tabular-nums">
+                    {Number.isFinite(voter.age) ? voter.age : '-'} {voter.gender}
                   </div>
 
-                  {/* 4 Bottom Action / Status Icons from screenshot */}
-                  <div className="flex items-center justify-between gap-1 pt-1.5 border-t border-black/5 dark:border-white/5 mt-1.5">
+                  {/* 4 Bottom Activity Icons */}
+                  <div className="flex items-center justify-between gap-1 pt-1.5 border-t border-black/5 dark:border-white/10 mt-1.5">
                     <span
-                      title={hasMeeting ? 'Meeting Scheduled' : 'No Meeting'}
-                      className={`h-4.5 w-4.5 rounded flex items-center justify-center text-[9px] ${
+                      title={hasMeeting ? 'Meeting scheduled' : 'No meeting'}
+                      className={`h-4 w-4 rounded flex items-center justify-center ${
                         hasMeeting
-                          ? 'bg-red-500 text-white font-bold shadow-xs'
-                          : 'bg-red-100 dark:bg-red-950/40 text-red-400 opacity-30'
+                          ? 'bg-red-600 text-white'
+                          : 'bg-red-100/70 dark:bg-red-950/50 text-red-500 dark:text-red-400 opacity-35'
                       }`}
                     >
                       <Calendar className="h-2.5 w-2.5" />
                     </span>
                     <span
-                      title={notesCount > 0 ? `${notesCount} Notes` : 'No Notes'}
-                      className={`h-4.5 w-4.5 rounded flex items-center justify-center text-[9px] ${
+                      title={notesCount > 0 ? `${notesCount} notes` : 'No notes'}
+                      className={`h-4 w-4 rounded flex items-center justify-center ${
                         notesCount > 0
-                          ? 'bg-amber-400 text-white font-bold shadow-xs'
-                          : 'bg-amber-100 dark:bg-amber-950/40 text-amber-400 opacity-30'
+                          ? 'bg-amber-500 text-white'
+                          : 'bg-amber-100/70 dark:bg-amber-950/50 text-amber-500 dark:text-amber-400 opacity-35'
                       }`}
                     >
                       <FileText className="h-2.5 w-2.5" />
                     </span>
                     <span
-                      title={hasFollowup ? 'Follow-up Required' : 'No Follow-up'}
-                      className={`h-4.5 w-4.5 rounded flex items-center justify-center text-[9px] ${
+                      title={hasFollowup ? 'Follow-up required' : 'No follow-up'}
+                      className={`h-4 w-4 rounded flex items-center justify-center ${
                         hasFollowup
-                          ? 'bg-[#0071e3] text-white font-bold shadow-xs'
-                          : 'bg-blue-100 dark:bg-blue-950/40 text-blue-400 opacity-30'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-blue-100/70 dark:bg-blue-950/50 text-blue-500 dark:text-blue-400 opacity-35'
                       }`}
                     >
                       <Clock className="h-2.5 w-2.5" />
                     </span>
                     <span
-                      title={isCompleted ? 'Completed / Verified' : 'Pending Verification'}
-                      className={`h-4.5 w-4.5 rounded flex items-center justify-center text-[9px] ${
+                      title={isCompleted ? 'Verified' : 'Pending verification'}
+                      className={`h-4 w-4 rounded flex items-center justify-center ${
                         isCompleted
-                          ? 'bg-emerald-500 text-white font-bold shadow-xs'
-                          : 'bg-emerald-100 dark:bg-emerald-950/40 text-emerald-400 opacity-30'
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-emerald-100/70 dark:bg-emerald-950/50 text-emerald-500 dark:text-emerald-400 opacity-35'
                       }`}
                     >
                       <Check className="h-2.5 w-2.5" />
@@ -1372,25 +1359,23 @@ export default function VoterListView() {
 
           {/* Empty state for grid */}
           {paginatedVoters.length === 0 && (
-            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-12 text-center text-slate-500">
-              No voter records match the current filters. Click &ldquo;Clear&rdquo; to reset.
+            <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-12 text-center text-xs text-slate-500 dark:text-zinc-400">
+              No voter records match the current filters. Clear filters to view all scoped records.
             </div>
           )}
 
           {/* Expanded View Pagination Footer */}
-          <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-3 text-xs text-slate-600 dark:text-slate-400 shadow-2xs">
-            <div className="flex items-center gap-3">
-              <span>
-                Showing{' '}
-                <span className="font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
-                  {filteredVoters.length === 0 ? 0 : (safePage - 1) * pageSize + 1}
-                </span>{' '}
-                to{' '}
-                <span className="font-semibold text-slate-900 dark:text-slate-100 tabular-nums">
-                  {Math.min(safePage * pageSize, filteredVoters.length)}
-                </span>{' '}
-                of <span className="font-semibold text-slate-900 dark:text-slate-100 tabular-nums">{filteredVoters.length}</span> voters
-              </span>
+          <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-4 py-3 text-xs text-slate-600 dark:text-zinc-400">
+            <div>
+              Showing{' '}
+              <span className="font-semibold text-slate-900 dark:text-zinc-100 tabular-nums">
+                {filteredVoters.length === 0 ? 0 : (safePage - 1) * safePageSize + 1}
+              </span>{' '}
+              to{' '}
+              <span className="font-semibold text-slate-900 dark:text-zinc-100 tabular-nums">
+                {Math.min(safePage * safePageSize, filteredVoters.length)}
+              </span>{' '}
+              of <span className="font-semibold text-slate-900 dark:text-zinc-100 tabular-nums">{filteredVoters.length}</span> voters
             </div>
 
             <div className="flex items-center gap-1">
@@ -1398,7 +1383,7 @@ export default function VoterListView() {
                 type="button"
                 disabled={safePage <= 1}
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 disabled:opacity-40"
+                className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800 disabled:opacity-40"
               >
                 &lt;
               </button>
@@ -1409,10 +1394,10 @@ export default function VoterListView() {
                     key={pageNum}
                     type="button"
                     onClick={() => setCurrentPage(pageNum)}
-                    className={`h-8 min-w-[32px] px-2 rounded-lg text-xs font-semibold transition-colors ${
+                    className={`h-8 min-w-[32px] px-2 rounded-lg text-xs font-medium tabular-nums transition-colors ${
                       safePage === pageNum
-                        ? 'bg-[#0071e3] text-white'
-                        : 'border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50'
+                        ? 'bg-blue-600 text-white'
+                        : 'border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800'
                     }`}
                   >
                     {pageNum}
@@ -1421,14 +1406,14 @@ export default function VoterListView() {
               })}
               {totalPages > 7 && (
                 <>
-                  <span className="px-1 text-slate-400">...</span>
+                  <span className="px-1 text-slate-400 dark:text-zinc-500">...</span>
                   <button
                     type="button"
                     onClick={() => setCurrentPage(totalPages)}
-                    className={`h-8 min-w-[32px] px-2 rounded-lg text-xs font-semibold transition-colors ${
+                    className={`h-8 min-w-[32px] px-2 rounded-lg text-xs font-medium tabular-nums transition-colors ${
                       safePage === totalPages
-                        ? 'bg-[#0071e3] text-white'
-                        : 'border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50'
+                        ? 'bg-blue-600 text-white'
+                        : 'border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800'
                     }`}
                   >
                     {totalPages}
@@ -1439,7 +1424,7 @@ export default function VoterListView() {
                 type="button"
                 disabled={safePage >= totalPages}
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 disabled:opacity-40"
+                className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800 disabled:opacity-40"
               >
                 &gt;
               </button>
@@ -1447,436 +1432,444 @@ export default function VoterListView() {
           </div>
         </div>
       ) : (
-        /* Modern CRM Voter Table (List View) */
-        <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-2xs">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50/95 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                <th className="py-3 pl-4 pr-2 w-9">
-                  <input
-                    type="checkbox"
-                    checked={
-                      paginatedVoters.length > 0 &&
-                      paginatedVoters.every((v) => selectedRowIds.includes(v.id))
-                    }
-                    onChange={toggleSelectAllOnPage}
-                    className="rounded border-slate-300 text-[#0071e3]"
-                  />
-                </th>
-                <th className="py-3 px-2.5 cursor-pointer hover:text-slate-900" onClick={() => handleSort('serialNo')}>
-                  <div className="inline-flex items-center gap-1">
-                    <span>#</span>
-                    <ArrowUpDown className="h-3 w-3" />
-                  </div>
-                </th>
-                {visibleCols.status && (
-                  <th className="py-3 px-2.5 cursor-pointer hover:text-slate-900" onClick={() => handleSort('status')}>
+        /* List View Table */
+        <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="sticky top-0 z-10 border-b border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950/80 text-xs font-medium text-slate-500 dark:text-zinc-400">
+                  <th className="py-3 pl-4 pr-2 w-9">
+                    <input
+                      type="checkbox"
+                      checked={
+                        paginatedVoters.length > 0 &&
+                        paginatedVoters.every((v) => selectedRowIds.includes(v.id))
+                      }
+                      onChange={toggleSelectAllOnPage}
+                      className="rounded border-slate-300 dark:border-zinc-600 text-blue-600"
+                    />
+                  </th>
+                  <th className="py-3 px-2.5 cursor-pointer hover:text-slate-900 dark:hover:text-zinc-100" onClick={() => handleSort('serialNo')}>
                     <div className="inline-flex items-center gap-1">
-                      <span>Status</span>
+                      <span>#</span>
                       <ArrowUpDown className="h-3 w-3" />
                     </div>
                   </th>
-                )}
-                {visibleCols.name && (
-                  <th className="py-3 px-3 cursor-pointer hover:text-slate-900" onClick={() => handleSort('name')}>
-                    <div className="inline-flex items-center gap-1">
-                      <span>Voter Name</span>
-                      <ArrowUpDown className="h-3 w-3" />
-                    </div>
-                  </th>
-                )}
-                {visibleCols.epicNo && (
-                  <th className="py-3 px-2.5 cursor-pointer hover:text-slate-900" onClick={() => handleSort('epicNo')}>
-                    <div className="inline-flex items-center gap-1">
-                      <span>EPIC / Voter ID</span>
-                      <ArrowUpDown className="h-3 w-3" />
-                    </div>
-                  </th>
-                )}
-                {visibleCols.houseNo && <th className="py-3 px-2.5">House No.</th>}
-                {visibleCols.village && <th className="py-3 px-2.5">Village</th>}
-                {visibleCols.villagePart && <th className="py-3 px-2.5">Village Part (Leikai)</th>}
-                {visibleCols.pollingStation && (
-                  <th className="py-3 px-2.5 cursor-pointer hover:text-slate-900" onClick={() => handleSort('pollingStationId')}>
-                    <div className="inline-flex items-center gap-1">
-                      <span>Polling Station</span>
-                      <ArrowUpDown className="h-3 w-3" />
-                    </div>
-                  </th>
-                )}
-                {visibleCols.familyId && <th className="py-3 px-2.5">Family ID</th>}
-                {visibleCols.fatherName && <th className="py-3 px-2.5">Father&apos;s Name</th>}
-                {visibleCols.motherName && <th className="py-3 px-2.5">Mother&apos;s Name</th>}
-                {visibleCols.spouseName && <th className="py-3 px-2.5">Spouse / Close Member</th>}
-                {visibleCols.age && (
-                  <th className="py-3 px-2 cursor-pointer hover:text-slate-900 text-right" onClick={() => handleSort('age')}>
-                    <div className="inline-flex items-center justify-end gap-1">
-                      <span>Age</span>
-                      <ArrowUpDown className="h-3 w-3" />
-                    </div>
-                  </th>
-                )}
-                {visibleCols.gender && <th className="py-3 px-2 text-center">Gender</th>}
-                {visibleCols.phone && <th className="py-3 px-2.5">Phone</th>}
-                {visibleCols.activity && <th className="py-3 px-2.5 text-center">Activity</th>}
-                <th className="py-3 pl-2 pr-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-xs">
-              {paginatedVoters.length === 0 ? (
-                <tr>
-                  <td colSpan={18} className="py-12 text-center text-slate-500">
-                    No voter records match the current filters. Click &ldquo;Clear&rdquo; to reset.
-                  </td>
+                  {visibleCols.status && (
+                    <th className="py-3 px-2.5 cursor-pointer hover:text-slate-900 dark:hover:text-zinc-100" onClick={() => handleSort('status')}>
+                      <div className="inline-flex items-center gap-1">
+                        <span>Status</span>
+                        <ArrowUpDown className="h-3 w-3" />
+                      </div>
+                    </th>
+                  )}
+                  {visibleCols.name && (
+                    <th className="py-3 px-3 cursor-pointer hover:text-slate-900 dark:hover:text-zinc-100" onClick={() => handleSort('name')}>
+                      <div className="inline-flex items-center gap-1">
+                        <span>Voter name</span>
+                        <ArrowUpDown className="h-3 w-3" />
+                      </div>
+                    </th>
+                  )}
+                  {visibleCols.epicNo && (
+                    <th className="py-3 px-2.5 cursor-pointer hover:text-slate-900 dark:hover:text-zinc-100" onClick={() => handleSort('epicNo')}>
+                      <div className="inline-flex items-center gap-1">
+                        <span>EPIC ID</span>
+                        <ArrowUpDown className="h-3 w-3" />
+                      </div>
+                    </th>
+                  )}
+                  {visibleCols.houseNo && <th className="py-3 px-2.5">House no</th>}
+                  {visibleCols.village && <th className="py-3 px-2.5">Village</th>}
+                  {visibleCols.villagePart && <th className="py-3 px-2.5">Leikai / part</th>}
+                  {visibleCols.pollingStation && (
+                    <th className="py-3 px-2.5 cursor-pointer hover:text-slate-900 dark:hover:text-zinc-100" onClick={() => handleSort('pollingStationId')}>
+                      <div className="inline-flex items-center gap-1">
+                        <span>Station</span>
+                        <ArrowUpDown className="h-3 w-3" />
+                      </div>
+                    </th>
+                  )}
+                  {visibleCols.familyId && <th className="py-3 px-2.5">Family</th>}
+                  {visibleCols.fatherName && <th className="py-3 px-2.5">Father</th>}
+                  {visibleCols.motherName && <th className="py-3 px-2.5">Mother</th>}
+                  {visibleCols.spouseName && <th className="py-3 px-2.5">Spouse</th>}
+                  {visibleCols.age && (
+                    <th className="py-3 px-2 cursor-pointer hover:text-slate-900 dark:hover:text-zinc-100 text-right" onClick={() => handleSort('age')}>
+                      <div className="inline-flex items-center justify-end gap-1">
+                        <span>Age</span>
+                        <ArrowUpDown className="h-3 w-3" />
+                      </div>
+                    </th>
+                  )}
+                  {visibleCols.gender && <th className="py-3 px-2 text-center">Sex</th>}
+                  {visibleCols.phone && <th className="py-3 px-2.5">Phone</th>}
+                  {visibleCols.activity && <th className="py-3 px-2.5 text-center">Activity</th>}
+                  <th className="py-3 pl-2 pr-4 text-right">Actions</th>
                 </tr>
-              ) : (
-                paginatedVoters.map((voter, idx) => {
-                  const village = villageMap.get(voter.villageId);
-                  const vp = villagePartMap.get(voter.villagePartId);
-                  const ps = psMap.get(voter.pollingStationId);
-                  const fam = familyMap.get(voter.familyId);
-                  const openNotes = noteCountMap.get(voter.id) || 0;
-                  const openTasks = taskCountMap.get(voter.id) || 0;
-                  const sentNotifs = notificationCountMap.get(voter.id) || 0;
-                  const isSelected = selectedRowIds.includes(voter.id);
-                  const currentCategory = normalizeVoterCategory(voter.category || voter.colorState);
-                  const colorStyles = getVoterCategoryStyles(currentCategory);
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-zinc-800/80 text-xs">
+                {paginatedVoters.length === 0 ? (
+                  <tr>
+                    <td colSpan={18} className="py-12 text-center text-slate-500 dark:text-zinc-400">
+                      No voter records match the current filters. Clear filters to reset.
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedVoters.map((voter, idx) => {
+                    const village = villageMap.get(voter.villageId);
+                    const vp = villagePartMap.get(voter.villagePartId);
+                    const ps = psMap.get(voter.pollingStationId);
+                    const fam = familyMap.get(voter.familyId);
+                    const openNotes = noteCountMap.get(voter.id) || 0;
+                    const openTasks = taskCountMap.get(voter.id) || 0;
+                    const sentNotifs = notificationCountMap.get(voter.id) || 0;
+                    const isSelected = selectedRowIds.includes(voter.id);
+                    const currentCategory = normalizeVoterCategory(voter.category || voter.colorState);
+                    const colorStyles = getVoterCategoryStyles(currentCategory);
 
-                  return (
-                    <tr
-                      key={voter.id}
-                      onClick={() => setSelectedVoterId(voter.id)}
-                      className={`group cursor-pointer transition-colors ${colorStyles.rowBorder} ${
-                        isSelected
-                          ? 'bg-blue-50/60 hover:bg-blue-50'
-                          : idx % 2 === 1
-                          ? 'bg-slate-50/40 hover:bg-blue-50/40'
-                          : 'bg-white hover:bg-blue-50/40'
-                      }`}
-                    >
-                      <td
-                        className="py-2.5 pl-3 pr-2"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                        }}
+                    return (
+                      <tr
+                        key={voter.id}
+                        onClick={() => setSelectedVoterId(voter.id)}
+                        className={`group cursor-pointer transition-colors ${
+                          isSelected
+                            ? 'bg-blue-50/70 dark:bg-blue-950/30 hover:bg-blue-50 dark:hover:bg-blue-950/40'
+                            : idx % 2 === 1
+                            ? 'bg-slate-50/50 dark:bg-zinc-950/30 hover:bg-slate-50 dark:hover:bg-zinc-800/40'
+                            : 'bg-white dark:bg-zinc-900 hover:bg-slate-50 dark:hover:bg-zinc-800/40'
+                        }`}
                       >
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => toggleRowSelect(voter.id)}
-                          className="rounded border-slate-300 text-[#0071e3]"
-                        />
-                      </td>
-                      <td className="py-2.5 px-2.5 font-mono text-slate-500 tabular-nums">{voter.serialNo}</td>
-                      {visibleCols.status && (
-                        <td className="py-2.5 px-2.5 whitespace-nowrap">
-                          <span
-                            className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${
-                              statusChipClasses[voter.status]
-                            }`}
-                          >
-                            {voter.status}
-                          </span>
-                          {voter.status === 'Issues' && voter.issueType && (
-                            <span className="ml-1 text-[10px] text-red-600 font-medium">({voter.issueType})</span>
-                          )}
-                        </td>
-                      )}
-                      {visibleCols.name && (
-                        <td className="py-2.5 px-3 font-semibold text-slate-900 whitespace-nowrap">
-                          <div className="flex items-center gap-2">
-                            {/* Pure Color Dot Indicator + Hover/Click 4-Dot Picker (No text naming) */}
-                            <div
-                              className="inline-flex items-center gap-1"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              {canEditVoter ? (
-                                <div className="inline-flex items-center gap-1">
-                                  {VOTER_CATEGORIES.map((cat) => {
-                                    const st = getVoterCategoryStyles(cat);
-                                    const isCurrent = currentCategory === cat;
-                                    return (
-                                      <button
-                                        key={cat}
-                                        type="button"
-                                        aria-label="Set row color"
-                                        onClick={() => {
-                                          if (!isCurrent) {
-                                            updateVoter(voter.id, { category: cat });
-                                          }
-                                        }}
-                                        className={`rounded-full transition-all ${st.dot} ${
-                                          isCurrent
-                                            ? 'h-3 w-3 ring-2 ring-offset-1 ring-slate-400'
-                                            : 'h-2 w-2 opacity-25 group-hover:opacity-75 hover:opacity-100 hover:scale-125'
-                                        }`}
-                                      />
-                                    );
-                                  })}
-                                </div>
-                              ) : (
-                                <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${colorStyles.dot}`} />
-                              )}
-                            </div>
-                            <span>{voter.name}</span>
-                          </div>
-                          {voter.tags.length > 0 && (
-                            <div className="text-[10px] font-normal text-slate-400 pl-5">
-                              {voter.tags.join(' · ')}
-                            </div>
-                          )}
-                        </td>
-                      )}
-                      {visibleCols.epicNo && (
-                        <td className="py-2.5 px-2.5 font-mono font-medium text-slate-700 whitespace-nowrap">
-                          {voter.epicNo}
-                        </td>
-                      )}
-                      {visibleCols.houseNo && (
-                        <td className="py-2.5 px-2.5 whitespace-nowrap">
-                          <span className="font-mono text-xs font-semibold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded">
-                            {voter.houseNo || '—'}
-                          </span>
-                        </td>
-                      )}
-                      {visibleCols.village && (
-                        <td className="py-2.5 px-2.5 text-slate-700 whitespace-nowrap">{village?.name || '—'}</td>
-                      )}
-                      {visibleCols.villagePart && (
-                        <td className="py-2.5 px-2.5 text-slate-600 whitespace-nowrap">{vp?.name || '—'}</td>
-                      )}
-                      {visibleCols.pollingStation && (
-                        <td className="py-2.5 px-2.5 whitespace-nowrap">
-                          <span className="font-mono font-semibold text-slate-800">
-                            PS-{ps?.psNo || voter.partNo}
-                          </span>
-                        </td>
-                      )}
-                      {visibleCols.familyId && (
                         <td
-                          className="py-2.5 px-2.5 whitespace-nowrap"
+                          className="py-2.5 pl-4 pr-2"
                           onClick={(e) => {
                             e.stopPropagation();
-                            setSelectedFamilyFilter(
-                              selectedFamilyFilter === voter.familyId ? null : voter.familyId
-                            );
                           }}
                         >
-                          <span className="font-mono text-[#0071e3] hover:underline font-medium">
-                            {fam?.familyCode || voter.familyId}
-                          </span>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleRowSelect(voter.id)}
+                            className="rounded border-slate-300 dark:border-zinc-600 text-blue-600"
+                          />
                         </td>
-                      )}
-                      {visibleCols.fatherName && (
-                        <td className="py-2.5 px-2.5 text-slate-600 whitespace-nowrap">{voter.fatherName}</td>
-                      )}
-                      {visibleCols.motherName && (
-                        <td className="py-2.5 px-2.5 text-slate-600 whitespace-nowrap">{voter.motherName}</td>
-                      )}
-                      {visibleCols.spouseName && (
-                        <td
-                          className="py-2.5 px-2.5 whitespace-nowrap"
-                          onClick={(e) => {
-                            if (voter.spouseVoterId) {
-                              e.stopPropagation();
-                              setSelectedVoterId(voter.spouseVoterId);
-                            }
-                          }}
-                        >
-                          {voter.spouseName ? (
-                            voter.spouseVoterId ? (
-                              <span className="text-[#0071e3] hover:underline font-medium">
-                                {voter.spouseName} ↗
-                              </span>
-                            ) : (
-                              <span className="text-slate-600">{voter.spouseName}</span>
-                            )
-                          ) : (
-                            <span className="text-slate-300">—</span>
-                          )}
+                        <td className="py-2.5 px-2.5 font-mono text-slate-500 dark:text-zinc-400 tabular-nums">
+                          {Number.isFinite(voter.serialNo) ? voter.serialNo : '-'}
                         </td>
-                      )}
-                      {visibleCols.age && (
-                        <td className="py-2.5 px-2 text-right font-mono text-slate-700 tabular-nums">{voter.age}</td>
-                      )}
-                      {visibleCols.gender && (
-                        <td className="py-2.5 px-2 text-center font-medium text-slate-600">{voter.gender}</td>
-                      )}
-                      {visibleCols.phone && (
-                        <td className="py-2.5 px-2.5 font-mono text-slate-600 whitespace-nowrap">
-                          {maskPhoneNumber(voter.phone, revealFullPhone)}
-                        </td>
-                      )}
-                      {visibleCols.activity && (
-                        <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
-                          {openNotes === 0 && openTasks === 0 && sentNotifs === 0 ? (
-                            <span className="text-slate-300">—</span>
-                          ) : (
-                            <div
-                              className="inline-flex items-center gap-2 text-slate-600"
-                              title={`${openNotes} Note(s), ${openTasks} Open Task(s), ${sentNotifs} Notification(s) sent`}
-                            >
-                              {sentNotifs > 0 && (
-                                <span className="inline-flex items-center gap-0.5 text-emerald-600 font-mono text-[11px]">
-                                  <BellRing className="h-3.5 w-3.5" />
-                                  {sentNotifs}
-                                </span>
-                              )}
-                              {openNotes > 0 && (
-                                <span className="inline-flex items-center gap-0.5 text-blue-600 font-mono text-[11px]">
-                                  <FileText className="h-3.5 w-3.5" />
-                                  {openNotes}
-                                </span>
-                              )}
-                              {openTasks > 0 && (
-                                <span className="inline-flex items-center gap-0.5 text-amber-600 font-mono text-[11px]">
-                                  <CheckSquare className="h-3.5 w-3.5" />
-                                  {openTasks}
-                                </span>
-                              )}
+                        {visibleCols.status && (
+                          <td className="py-2.5 px-2.5 whitespace-nowrap">
+                            <span className={`font-medium ${statusTextClass[voter.status]}`}>
+                              {voter.status}
+                            </span>
+                            {voter.status === 'Issues' && voter.issueType && (
+                              <span className="ml-1 text-xs text-red-600 dark:text-red-400">· {voter.issueType}</span>
+                            )}
+                          </td>
+                        )}
+                        {visibleCols.name && (
+                          <td className="py-2.5 px-3 font-medium text-slate-900 dark:text-zinc-100 whitespace-nowrap">
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="inline-flex items-center gap-1"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {canEditVoter ? (
+                                  <div className="inline-flex items-center gap-1">
+                                    {VOTER_CATEGORIES.map((cat) => {
+                                      const st = getVoterCategoryStyles(cat);
+                                      const isCurrent = currentCategory === cat;
+                                      return (
+                                        <button
+                                          key={cat}
+                                          type="button"
+                                          aria-label="Set row color"
+                                          onClick={() => {
+                                            if (!isCurrent) {
+                                              updateVoter(voter.id, { category: cat });
+                                            }
+                                          }}
+                                          className={`rounded-full transition-all ${st.dot} ${
+                                            isCurrent
+                                              ? 'h-3 w-3 ring-2 ring-offset-1 dark:ring-offset-zinc-900 ring-slate-400 dark:ring-zinc-500'
+                                              : 'h-2 w-2 opacity-25 group-hover:opacity-75 hover:opacity-100 hover:scale-125'
+                                          }`}
+                                        />
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${colorStyles.dot}`} />
+                                )}
+                              </div>
+                              <span>{voter.name}</span>
                             </div>
-                          )}
-                        </td>
-                      )}
-                      <td
-                        className="py-2.5 pl-2 pr-4 text-right whitespace-nowrap"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div className="inline-flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => openIndividualNotifyModal(voter)}
-                            title={`Notify ${voter.name} individually`}
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-blue-200 bg-blue-50/70 text-[#0071e3] hover:bg-[#0071e3] hover:text-white text-[11px] font-semibold transition-colors"
-                          >
-                            <BellRing className="h-3 w-3" />
-                            <span>Notify</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedVoterId(voter.id)}
-                            title="Edit Voter"
-                            className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                          >
-                            <Edit3 className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedFamilyFilter(voter.familyId);
-                              setActiveTab('family-view');
+                            {voter.tags.length > 0 && (
+                              <div className="text-[11px] font-normal text-slate-400 dark:text-zinc-500 pl-5">
+                                {voter.tags.join(' · ')}
+                              </div>
+                            )}
+                          </td>
+                        )}
+                        {visibleCols.epicNo && (
+                          <td className="py-2.5 px-2.5 font-mono text-slate-700 dark:text-zinc-300 whitespace-nowrap">
+                            {voter.epicNo}
+                          </td>
+                        )}
+                        {visibleCols.houseNo && (
+                          <td className="py-2.5 px-2.5 font-mono text-slate-700 dark:text-zinc-300 whitespace-nowrap">
+                            {voter.houseNo || '-'}
+                          </td>
+                        )}
+                        {visibleCols.village && (
+                          <td className="py-2.5 px-2.5 text-slate-700 dark:text-zinc-300 whitespace-nowrap">
+                            {village?.name || '-'}
+                          </td>
+                        )}
+                        {visibleCols.villagePart && (
+                          <td className="py-2.5 px-2.5 text-slate-600 dark:text-zinc-400 whitespace-nowrap">
+                            {vp?.name || '-'}
+                          </td>
+                        )}
+                        {visibleCols.pollingStation && (
+                          <td className="py-2.5 px-2.5 font-mono font-medium text-slate-800 dark:text-zinc-200 whitespace-nowrap">
+                            PS-{Number.isFinite(ps?.psNo) ? ps?.psNo : Number.isFinite(voter.partNo) ? voter.partNo : '-'}
+                          </td>
+                        )}
+                        {visibleCols.familyId && (
+                          <td
+                            className="py-2.5 px-2.5 whitespace-nowrap"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedFamilyFilter(
+                                selectedFamilyFilter === voter.familyId ? null : voter.familyId
+                              );
                             }}
-                            title="Open Household in Family View"
-                            className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-900"
                           >
-                            <MoreHorizontal className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Table Footer & Pagination */}
-        <div className="flex flex-wrap items-center justify-between gap-4 border-t border-slate-200 bg-slate-50/70 px-4 py-3 text-xs text-slate-600">
-          <div className="flex items-center gap-3">
-            <span>
-              Showing{' '}
-              <span className="font-semibold text-slate-900 tabular-nums">
-                {filteredVoters.length === 0 ? 0 : (safePage - 1) * pageSize + 1}
-              </span>{' '}
-              to{' '}
-              <span className="font-semibold text-slate-900 tabular-nums">
-                {Math.min(safePage * pageSize, filteredVoters.length)}
-              </span>{' '}
-              of <span className="font-semibold text-slate-900 tabular-nums">{filteredVoters.length}</span> voters
-            </span>
-
-            <select
-              value={pageSize}
-              onChange={(e) => {
-                setPageSize(Number(e.target.value));
-                setCurrentPage(1);
-              }}
-              className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700"
-            >
-              <option value={15}>15 / page</option>
-              <option value={25}>25 / page</option>
-              <option value={50}>50 / page</option>
-              <option value={100}>100 / page</option>
-            </select>
+                            <span className="font-mono text-blue-600 dark:text-blue-400 hover:underline font-medium">
+                              {fam?.familyCode || voter.familyId}
+                            </span>
+                          </td>
+                        )}
+                        {visibleCols.fatherName && (
+                          <td className="py-2.5 px-2.5 text-slate-600 dark:text-zinc-400 whitespace-nowrap">{voter.fatherName}</td>
+                        )}
+                        {visibleCols.motherName && (
+                          <td className="py-2.5 px-2.5 text-slate-600 dark:text-zinc-400 whitespace-nowrap">{voter.motherName}</td>
+                        )}
+                        {visibleCols.spouseName && (
+                          <td
+                            className="py-2.5 px-2.5 whitespace-nowrap"
+                            onClick={(e) => {
+                              if (voter.spouseVoterId) {
+                                e.stopPropagation();
+                                setSelectedVoterId(voter.spouseVoterId);
+                              }
+                            }}
+                          >
+                            {voter.spouseName ? (
+                              voter.spouseVoterId ? (
+                                <span className="text-blue-600 dark:text-blue-400 hover:underline font-medium">
+                                  {voter.spouseName}
+                                </span>
+                              ) : (
+                                <span className="text-slate-600 dark:text-zinc-400">{voter.spouseName}</span>
+                              )
+                            ) : (
+                              <span className="text-slate-300 dark:text-zinc-600">-</span>
+                            )}
+                          </td>
+                        )}
+                        {visibleCols.age && (
+                          <td className="py-2.5 px-2 text-right font-mono text-slate-700 dark:text-zinc-300 tabular-nums">
+                            {Number.isFinite(voter.age) ? voter.age : '-'}
+                          </td>
+                        )}
+                        {visibleCols.gender && (
+                          <td className="py-2.5 px-2 text-center font-medium text-slate-600 dark:text-zinc-400">
+                            {voter.gender}
+                          </td>
+                        )}
+                        {visibleCols.phone && (
+                          <td className="py-2.5 px-2.5 font-mono text-slate-600 dark:text-zinc-400 whitespace-nowrap">
+                            {maskPhoneNumber(voter.phone, revealFullPhone)}
+                          </td>
+                        )}
+                        {visibleCols.activity && (
+                          <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
+                            {openNotes === 0 && openTasks === 0 && sentNotifs === 0 ? (
+                              <span className="text-slate-300 dark:text-zinc-600">-</span>
+                            ) : (
+                              <div
+                                className="inline-flex items-center gap-2 text-slate-600 dark:text-zinc-400"
+                                title={`${openNotes} notes, ${openTasks} open tasks, ${sentNotifs} notifications`}
+                              >
+                                {sentNotifs > 0 && (
+                                  <span className="inline-flex items-center gap-0.5 text-emerald-600 dark:text-emerald-400 font-mono text-xs tabular-nums">
+                                    <BellRing className="h-3.5 w-3.5" />
+                                    {sentNotifs}
+                                  </span>
+                                )}
+                                {openNotes > 0 && (
+                                  <span className="inline-flex items-center gap-0.5 text-blue-600 dark:text-blue-400 font-mono text-xs tabular-nums">
+                                    <FileText className="h-3.5 w-3.5" />
+                                    {openNotes}
+                                  </span>
+                                )}
+                                {openTasks > 0 && (
+                                  <span className="inline-flex items-center gap-0.5 text-amber-600 dark:text-amber-400 font-mono text-xs tabular-nums">
+                                    <CheckSquare className="h-3.5 w-3.5" />
+                                    {openTasks}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                        )}
+                        <td
+                          className="py-2.5 pl-2 pr-4 text-right whitespace-nowrap"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => openIndividualNotifyModal(voter)}
+                              title={`Notify ${voter.name}`}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-blue-200 dark:border-blue-900/60 bg-blue-50/70 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 hover:bg-blue-600 hover:text-white dark:hover:bg-blue-600 dark:hover:text-white text-xs font-medium transition-colors"
+                            >
+                              <BellRing className="h-3 w-3" />
+                              <span>Notify</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedVoterId(voter.id)}
+                              title="Open voter drawer"
+                              className="p-1.5 rounded-lg text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-zinc-100"
+                            >
+                              <Edit3 className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedFamilyFilter(voter.familyId);
+                                setActiveTab('family-view');
+                              }}
+                              title="View household"
+                              className="p-1.5 rounded-lg text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-zinc-100"
+                            >
+                              <MoreHorizontal className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              disabled={safePage <= 1}
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-            >
-              Previous
-            </button>
-            <span className="px-2 font-mono text-xs text-slate-700 tabular-nums">
-              Page {safePage} of {totalPages}
-            </span>
-            <button
-              type="button"
-              disabled={safePage >= totalPages}
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-            >
-              Next
-            </button>
+          {/* Table Footer & Pagination */}
+          <div className="flex flex-wrap items-center justify-between gap-4 border-t border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/60 px-4 py-3 text-xs text-slate-600 dark:text-zinc-400">
+            <div className="flex items-center gap-3">
+              <span>
+                Showing{' '}
+                <span className="font-semibold text-slate-900 dark:text-zinc-100 tabular-nums">
+                  {filteredVoters.length === 0 ? 0 : (safePage - 1) * safePageSize + 1}
+                </span>{' '}
+                to{' '}
+                <span className="font-semibold text-slate-900 dark:text-zinc-100 tabular-nums">
+                  {Math.min(safePage * safePageSize, filteredVoters.length)}
+                </span>{' '}
+                of <span className="font-semibold text-slate-900 dark:text-zinc-100 tabular-nums">{filteredVoters.length}</span> voters
+              </span>
+
+              <select
+                value={safePageSize}
+                onChange={(e) => {
+                  const next = Number(e.target.value);
+                  if (Number.isFinite(next) && next > 0) {
+                    setPageSize(next);
+                    setCurrentPage(1);
+                  }
+                }}
+                className="rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 text-xs font-medium text-slate-700 dark:text-zinc-200 tabular-nums"
+              >
+                <option value={15}>15 / page</option>
+                <option value={25}>25 / page</option>
+                <option value={50}>50 / page</option>
+                <option value={100}>100 / page</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled={safePage <= 1}
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                className="rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 font-medium text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800 disabled:opacity-40 whitespace-nowrap"
+              >
+                Previous
+              </button>
+              <span className="px-2 font-mono text-xs text-slate-700 dark:text-zinc-300 tabular-nums">
+                Page {safePage} of {totalPages}
+              </span>
+              <button
+                type="button"
+                disabled={safePage >= totalPages}
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                className="rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 font-medium text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800 disabled:opacity-40 whitespace-nowrap"
+              >
+                Next
+              </button>
+            </div>
           </div>
         </div>
-      </div>
       )}
 
       {/* Right-Side Voter Details Drawer */}
       <VoterDrawer filteredVoterIds={filteredVoterIds} />
 
-      {/* Bulk Move Polling Station Modal (Requires Reason) */}
+      {/* Bulk Move Polling Station Modal */}
       {showBulkMoveModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl border border-slate-200 space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 dark:bg-black/60 p-4 backdrop-blur-[1px]">
+          <div className="w-full max-w-md rounded-xl bg-white dark:bg-zinc-900 p-6 shadow-2xl border border-slate-200 dark:border-zinc-800 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-slate-900">Move {selectedRowIds.length} Voter(s) to Polling Station</h3>
-              <button type="button" onClick={() => setShowBulkMoveModal(false)}>
-                <X className="h-4 w-4 text-slate-500" />
+              <h3 className="text-base font-semibold text-slate-900 dark:text-zinc-100">
+                Move {selectedRowIds.length} voter(s) to polling station
+              </h3>
+              <button type="button" onClick={() => setShowBulkMoveModal(false)} className="text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-200">
+                <X className="h-4 w-4" />
               </button>
             </div>
-            <p className="text-xs text-slate-600">
-              Every voter belongs to exactly one polling station. Moving voters across stations requires a coordinator reason and writes to the immutable audit log.
+            <p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed">
+              Moving voters across stations requires a reason and records an immutable audit event.
             </p>
             <div className="space-y-3 text-xs">
               <div>
-                <label className="block font-medium text-slate-700 mb-1">Target Polling Station (PS 1–41)</label>
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">
+                  Target polling station
+                </label>
                 <select
                   value={bulkMovePsId}
                   onChange={(e) => setBulkMovePsId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                  className={inputClass}
                 >
-                  <option value="">Select Polling Station...</option>
+                  <option value="">Select polling station...</option>
                   {scopedPollingStations.map((ps) => (
                     <option key={ps.id} value={ps.id}>
-                      PS-{ps.psNo}: {ps.name}
+                      PS-{ps.psNo} {ps.name}
                     </option>
                   ))}
                 </select>
               </div>
               <div>
-                <label className="block font-medium text-slate-700 mb-1">Audit Reason (Required)</label>
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">Audit reason</label>
                 <input
                   type="text"
                   value={bulkMoveReason}
                   onChange={(e) => setBulkMoveReason(e.target.value)}
-                  placeholder="e.g., ECI Part boundary correction / household shift"
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                  placeholder="ECI part boundary correction or household shift"
+                  className={inputClass}
                 />
               </div>
             </div>
@@ -1884,7 +1877,7 @@ export default function VoterListView() {
               <button
                 type="button"
                 onClick={() => setShowBulkMoveModal(false)}
-                className="rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700"
+                className="rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-2 text-xs font-medium text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800 whitespace-nowrap"
               >
                 Cancel
               </button>
@@ -1901,9 +1894,9 @@ export default function VoterListView() {
                   setBulkMoveReason('');
                   setSelectedRowIds([]);
                 }}
-                className="rounded-full bg-[#0071e3] px-4 py-2 text-xs font-semibold text-white disabled:opacity-40"
+                className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40 whitespace-nowrap"
               >
-                Confirm Station Move
+                Confirm move
               </button>
             </div>
           </div>
@@ -1912,91 +1905,94 @@ export default function VoterListView() {
 
       {/* Add Voter Modal */}
       {showAddVoterModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl border border-slate-200 space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 dark:bg-black/60 p-4 backdrop-blur-[1px]">
+          <div className="w-full max-w-lg rounded-xl bg-white dark:bg-zinc-900 p-6 shadow-2xl border border-slate-200 dark:border-zinc-800 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-slate-900">Add New Voter Record (AC-31 Thoubal)</h3>
-              <button type="button" onClick={() => setShowAddVoterModal(false)}>
-                <X className="h-4 w-4 text-slate-500" />
+              <h3 className="text-base font-semibold text-slate-900 dark:text-zinc-100">Add voter record</h3>
+              <button type="button" onClick={() => setShowAddVoterModal(false)} className="text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-200">
+                <X className="h-4 w-4" />
               </button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
               <div>
-                <label className="block font-medium text-slate-700 mb-1">EPIC Number (3 Letters + 7 Digits)</label>
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">EPIC number (3 letters + 7 digits)</label>
                 <input
                   type="text"
                   value={newVoterForm.epicNo}
                   onChange={(e) => setNewVoterForm((p) => ({ ...p, epicNo: e.target.value.toUpperCase() }))}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 font-mono text-slate-900"
+                  className={`${inputClass} font-mono`}
                 />
               </div>
               <div>
-                <label className="block font-medium text-slate-700 mb-1">Full Name</label>
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">Full name</label>
                 <input
                   type="text"
                   value={newVoterForm.name}
                   onChange={(e) => setNewVoterForm((p) => ({ ...p, name: e.target.value }))}
-                  placeholder="e.g. Thokchom Mangibabu Singh"
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                  placeholder="Thokchom Mangibabu Singh"
+                  className={inputClass}
                 />
               </div>
               <div>
-                <label className="block font-medium text-slate-700 mb-1">Father&apos;s Name</label>
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">Father&apos;s name</label>
                 <input
                   type="text"
                   value={newVoterForm.fatherName}
                   onChange={(e) => setNewVoterForm((p) => ({ ...p, fatherName: e.target.value }))}
-                  placeholder="e.g. Thokchom Ibohal Singh"
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                  placeholder="Thokchom Ibohal Singh"
+                  className={inputClass}
                 />
               </div>
               <div>
-                <label className="block font-medium text-slate-700 mb-1">Mother&apos;s Name</label>
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">Mother&apos;s name</label>
                 <input
                   type="text"
                   value={newVoterForm.motherName}
                   onChange={(e) => setNewVoterForm((p) => ({ ...p, motherName: e.target.value }))}
-                  placeholder="e.g. Thokchom Jamuna Devi"
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                  placeholder="Thokchom Jamuna Devi"
+                  className={inputClass}
                 />
               </div>
               <div>
-                <label className="block font-medium text-slate-700 mb-1">Spouse&apos;s Name (Optional)</label>
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">Spouse&apos;s name (optional)</label>
                 <input
                   type="text"
                   value={newVoterForm.spouseName}
                   onChange={(e) => setNewVoterForm((p) => ({ ...p, spouseName: e.target.value }))}
-                  placeholder="e.g. Thokchom Ibemhal Devi"
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                  placeholder="Thokchom Ibemhal Devi"
+                  className={inputClass}
                 />
               </div>
               <div>
-                <label className="block font-medium text-slate-700 mb-1">House Number</label>
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">House number</label>
                 <input
                   type="text"
                   value={newVoterForm.houseNo}
                   onChange={(e) => setNewVoterForm((p) => ({ ...p, houseNo: e.target.value }))}
-                  placeholder="e.g. H.No. 42/A"
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 font-mono text-slate-900"
+                  placeholder="H.No. 42/A"
+                  className={`${inputClass} font-mono`}
                 />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block font-medium text-slate-700 mb-1">Age (&ge; 18)</label>
+                  <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">Age (18+)</label>
                   <input
                     type="number"
                     min={18}
-                    value={newVoterForm.age}
-                    onChange={(e) => setNewVoterForm((p) => ({ ...p, age: Number(e.target.value) }))}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                    value={Number.isFinite(newVoterForm.age) ? newVoterForm.age : 18}
+                    onChange={(e) => {
+                      const nextAge = Number(e.target.value);
+                      setNewVoterForm((p) => ({ ...p, age: Number.isFinite(nextAge) ? nextAge : 18 }));
+                    }}
+                    className={`${inputClass} tabular-nums`}
                   />
                 </div>
                 <div>
-                  <label className="block font-medium text-slate-700 mb-1">Gender</label>
+                  <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">Gender</label>
                   <select
                     value={newVoterForm.gender}
                     onChange={(e) => setNewVoterForm((p) => ({ ...p, gender: e.target.value as Gender }))}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                    className={inputClass}
                   >
                     <option value="M">M</option>
                     <option value="F">F</option>
@@ -2005,17 +2001,17 @@ export default function VoterListView() {
                 </div>
               </div>
               <div>
-                <label className="block font-medium text-slate-700 mb-1">Phone Number</label>
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">Phone number</label>
                 <input
                   type="text"
                   value={newVoterForm.phone}
                   onChange={(e) => setNewVoterForm((p) => ({ ...p, phone: e.target.value }))}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 font-mono text-slate-900"
+                  className={`${inputClass} font-mono`}
                 />
               </div>
               <div>
-                <label className="block font-medium text-slate-700 mb-1">Color</label>
-                <div className="flex items-center gap-2.5 rounded-xl border border-slate-300 px-3 py-2">
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">Color</label>
+                <div className="flex items-center gap-2.5 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2">
                   {VOTER_CATEGORIES.map((cat) => {
                     const st = getVoterCategoryStyles(cat);
                     const isSelected = newVoterForm.category === cat;
@@ -2025,8 +2021,8 @@ export default function VoterListView() {
                         type="button"
                         aria-label="Select color"
                         onClick={() => setNewVoterForm((p) => ({ ...p, category: cat }))}
-                        className={`h-5 w-5 rounded-full transition-transform ${st.dot} ${
-                          isSelected ? 'scale-125 ring-2 ring-offset-1 ring-slate-900' : 'opacity-70 hover:opacity-100'
+                        className={`h-4 w-4 rounded-full transition-transform ${st.dot} ${
+                          isSelected ? 'scale-125 ring-2 ring-offset-1 dark:ring-offset-zinc-950 ring-slate-900 dark:ring-zinc-100' : 'opacity-70 hover:opacity-100'
                         }`}
                       />
                     );
@@ -2034,8 +2030,8 @@ export default function VoterListView() {
                 </div>
               </div>
               <div>
-                <label className="block font-medium text-slate-700 mb-1">
-                  Village Part (Leikai) → Allocates Station ({villageParts.length} in Scope)
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">
+                  Village part and station ({villageParts.length} in scope)
                 </label>
                 <select
                   value={
@@ -2044,11 +2040,11 @@ export default function VoterListView() {
                       : villageParts[0]?.id || 'vp-1'
                   }
                   onChange={(e) => setNewVoterForm((p) => ({ ...p, villagePartId: e.target.value }))}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                  className={inputClass}
                 >
                   {villageParts.map((vp) => (
                     <option key={vp.id} value={vp.id}>
-                      {vp.name} → Allocated to PS-{vp.partNo}
+                      {vp.name} (PS-{vp.partNo})
                     </option>
                   ))}
                 </select>
@@ -2058,7 +2054,7 @@ export default function VoterListView() {
               <button
                 type="button"
                 onClick={() => setShowAddVoterModal(false)}
-                className="rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700"
+                className="rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-2 text-xs font-medium text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800 whitespace-nowrap"
               >
                 Cancel
               </button>
@@ -2076,11 +2072,11 @@ export default function VoterListView() {
                   createVoter({
                     epicNo: newVoterForm.epicNo,
                     name: newVoterForm.name.trim(),
-                    fatherName: newVoterForm.fatherName.trim() || 'Not Recorded',
-                    motherName: newVoterForm.motherName.trim() || 'Not Recorded',
+                    fatherName: newVoterForm.fatherName.trim() || 'Not recorded',
+                    motherName: newVoterForm.motherName.trim() || 'Not recorded',
                     spouseName: newVoterForm.spouseName.trim() || undefined,
                     houseNo: houseNoVal,
-                    age: Math.max(18, newVoterForm.age),
+                    age: Math.max(18, Number.isFinite(Number(newVoterForm.age)) ? Math.round(Number(newVoterForm.age)) : 18),
                     gender: newVoterForm.gender,
                     phone: newVoterForm.phone,
                     familyId: targetFamilyId,
@@ -2108,9 +2104,9 @@ export default function VoterListView() {
                   }));
                   setShowAddVoterModal(false);
                 }}
-                className="rounded-full bg-[#0071e3] px-5 py-2 text-xs font-semibold text-white disabled:opacity-40"
+                className="rounded-lg bg-blue-600 px-5 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40 whitespace-nowrap"
               >
-                Create Voter Record
+                Create voter
               </button>
             </div>
           </div>
@@ -2119,49 +2115,49 @@ export default function VoterListView() {
 
       {/* Export Approval & Audit Log Modal */}
       {showExportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl border border-slate-200 space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 dark:bg-black/60 p-4 backdrop-blur-[1px]">
+          <div className="w-full max-w-md rounded-xl bg-white dark:bg-zinc-900 p-6 shadow-2xl border border-slate-200 dark:border-zinc-800 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-slate-900">Approval-Gated Voter Data Export</h3>
-              <button type="button" onClick={() => setShowExportModal(false)}>
-                <X className="h-4 w-4 text-slate-500" />
+              <h3 className="text-base font-semibold text-slate-900 dark:text-zinc-100">Approval-gated voter export</h3>
+              <button type="button" onClick={() => setShowExportModal(false)} className="text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-200">
+                <X className="h-4 w-4" />
               </button>
             </div>
-            <p className="text-xs text-slate-600 leading-relaxed">
-              Every personal data export requires Admin approval, is watermarked with the requester&apos;s identity, and is permanently logged in the audit trail.
+            <p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed">
+              Every personal data export requires coordinator approval, carries the requester identity watermark, and is logged in the audit trail.
             </p>
-            <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-xs space-y-1">
+            <div className="rounded-lg bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 p-3 text-xs space-y-1">
               <div>
-                <span className="text-slate-500">Records in Scope:</span>{' '}
-                <span className="font-bold text-slate-900">
+                <span className="text-slate-500 dark:text-zinc-400">Records in scope </span>
+                <span className="font-semibold text-slate-900 dark:text-zinc-100 tabular-nums">
                   {selectedRowIds.length > 0 ? selectedRowIds.length : filteredVoters.length} voters
                 </span>
               </div>
               <div>
-                <span className="text-slate-500">Filter Scope:</span>{' '}
-                <span className="font-medium text-slate-800">
-                  {statusCardFilter === 'ALL' ? 'All Statuses' : statusCardFilter} ·{' '}
+                <span className="text-slate-500 dark:text-zinc-400">Filter scope </span>
+                <span className="font-medium text-slate-800 dark:text-zinc-200">
+                  {statusCardFilter === 'ALL' ? 'All statuses' : statusCardFilter} ·{' '}
                   {selectedPollingStationFilter.length === 0
-                    ? 'All Scoped Stations'
-                    : `${selectedPollingStationFilter.length} Station(s)`}
+                    ? 'All scoped stations'
+                    : `${selectedPollingStationFilter.length} station(s)`}
                 </span>
               </div>
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Official Purpose / Reason for Export</label>
+              <label className="block text-xs font-medium text-slate-700 dark:text-zinc-300 mb-1">Official purpose for export</label>
               <input
                 type="text"
                 value={exportReason}
                 onChange={(e) => setExportReason(e.target.value)}
-                placeholder="e.g., Booth verification sheets for PS-1 field team..."
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-xs text-slate-900"
+                placeholder="Booth verification sheets for field team"
+                className={inputClass}
               />
             </div>
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setShowExportModal(false)}
-                className="rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700"
+                className="rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-2 text-xs font-medium text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800 whitespace-nowrap"
               >
                 Cancel
               </button>
@@ -2178,7 +2174,6 @@ export default function VoterListView() {
                     targetList.length,
                     exportReason.trim()
                   );
-                  // Also trigger downloadable watermarked CSV if Admin/Coordinator
                   const csvRows = [
                     ['# WATERMARK: AC-31 THOUBAL OFFICIAL EXPORT', `TIMESTAMP: ${new Date().toISOString()}`, `REASON: ${exportReason.trim()}`],
                     ['SerialNo', 'EPIC', 'Name', 'FatherName', 'MotherName', 'Age', 'Gender', 'Status', 'PollingStation', 'FamilyID'],
@@ -2207,9 +2202,9 @@ export default function VoterListView() {
                   setShowExportModal(false);
                   setExportReason('');
                 }}
-                className="rounded-full bg-[#0071e3] px-4 py-2 text-xs font-semibold text-white disabled:opacity-40"
+                className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40 whitespace-nowrap"
               >
-                Log & Export CSV
+                Log and export CSV
               </button>
             </div>
           </div>
@@ -2218,24 +2213,24 @@ export default function VoterListView() {
 
       {/* Individual Voter Notification Modal */}
       {activeNotifyVoter && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
-          <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 dark:bg-black/65 p-4 backdrop-blur-[1px]">
+          <div className="w-full max-w-xl rounded-xl bg-white dark:bg-zinc-900 p-6 shadow-2xl border border-slate-200 dark:border-zinc-800 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 dark:border-zinc-800 pb-3">
               <div>
-                <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-[#0071e3]">
+                <div className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 dark:text-blue-400">
                   <BellRing className="h-3.5 w-3.5" />
-                  <span>Individual Voter Notification</span>
+                  <span>Voter notification</span>
                 </div>
-                <h3 className="text-base font-bold text-slate-900 mt-0.5">{activeNotifyVoter.name}</h3>
-                <p className="text-xs text-slate-500 font-mono mt-0.5">
-                  EPIC: {activeNotifyVoter.epicNo} · Part {activeNotifyVoter.partNo} · Sl. {activeNotifyVoter.serialNo} · Phone:{' '}
+                <h3 className="text-base font-semibold text-slate-900 dark:text-zinc-100 mt-0.5">{activeNotifyVoter.name}</h3>
+                <p className="text-xs text-slate-500 dark:text-zinc-400 font-mono mt-0.5 tabular-nums">
+                  {activeNotifyVoter.epicNo} · Part {Number.isFinite(activeNotifyVoter.partNo) ? activeNotifyVoter.partNo : '-'} · Sl. {Number.isFinite(activeNotifyVoter.serialNo) ? activeNotifyVoter.serialNo : '-'} ·{' '}
                   {maskPhoneNumber(activeNotifyVoter.phone, revealFullPhone)}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setActiveNotifyVoterId(null)}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-700 dark:hover:text-zinc-200"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -2243,14 +2238,14 @@ export default function VoterListView() {
 
             {/* Channel Selector */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">1. Delivery Channel</label>
+              <label className="block text-xs font-medium text-slate-700 dark:text-zinc-300 mb-1.5">Delivery channel</label>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 {(
                   [
                     { id: 'WhatsApp', label: 'WhatsApp', icon: MessageSquare },
-                    { id: 'SMS', label: 'SMS Text', icon: Send },
-                    { id: 'Voice Call', label: 'Voice Alert', icon: PhoneCall },
-                    { id: 'Field Slip', label: 'Doorstep Slip', icon: Printer },
+                    { id: 'SMS', label: 'SMS text', icon: Send },
+                    { id: 'Voice Call', label: 'Voice alert', icon: PhoneCall },
+                    { id: 'Field Slip', label: 'Doorstep slip', icon: Printer },
                   ] as { id: NotificationChannel; label: string; icon: React.ComponentType<{ className?: string }> }[]
                 ).map((ch) => {
                   const Icon = ch.icon;
@@ -2260,10 +2255,10 @@ export default function VoterListView() {
                       key={ch.id}
                       type="button"
                       onClick={() => setNotifChannel(ch.id)}
-                      className={`flex items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
+                      className={`flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors ${
                         active
-                          ? 'border-[#0071e3] bg-[#0071e3] text-white'
-                          : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100'
+                          ? 'border-blue-600 bg-blue-600 text-white'
+                          : 'border-slate-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950 text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800'
                       }`}
                     >
                       <Icon className="h-3.5 w-3.5" />
@@ -2276,7 +2271,7 @@ export default function VoterListView() {
 
             {/* Template Preset Selector */}
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">2. Notification Template</label>
+              <label className="block text-xs font-medium text-slate-700 dark:text-zinc-300 mb-1.5">Notification template</label>
               <div className="flex flex-wrap gap-1.5">
                 {(
                   [
@@ -2298,10 +2293,10 @@ export default function VoterListView() {
                         setNotifSubject(generated.subject);
                         setNotifMessage(generated.message);
                       }}
-                      className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                      className={`rounded-lg px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors ${
                         active
-                          ? 'bg-slate-900 text-white'
-                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                          ? 'bg-slate-900 dark:bg-zinc-100 text-white dark:text-zinc-900'
+                          : 'bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300 hover:bg-slate-200 dark:hover:bg-zinc-700'
                       }`}
                     >
                       {tpl}
@@ -2314,53 +2309,53 @@ export default function VoterListView() {
             {/* Subject & Message Body */}
             <div className="space-y-3 text-xs">
               <div>
-                <label className="block font-medium text-slate-700 mb-1">Subject / Reference</label>
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">Subject</label>
                 <input
                   type="text"
                   value={notifSubject}
                   onChange={(e) => setNotifSubject(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900 focus:border-[#0071e3] focus:outline-none"
+                  className={inputClass}
                 />
               </div>
               <div>
-                <label className="block font-medium text-slate-700 mb-1">Personalized Voter Message</label>
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">Message</label>
                 <textarea
                   rows={4}
                   value={notifMessage}
                   onChange={(e) => setNotifMessage(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 p-3 text-slate-900 leading-relaxed focus:border-[#0071e3] focus:outline-none"
+                  className={`${inputClass} p-3 leading-relaxed`}
                 />
               </div>
             </div>
 
-            {/* Recent Notification History for this Individual Voter */}
+            {/* Recent Notification History */}
             {(() => {
               const history = voterNotifications.filter((n) => n.voterId === activeNotifyVoter.id);
               return (
-                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 space-y-2">
-                  <div className="flex items-center justify-between text-[11px] font-semibold text-slate-600">
-                    <span>Individual Dispatch History ({history.length})</span>
-                    <span className="font-mono text-slate-400">{activeNotifyVoter.epicNo}</span>
+                <div className="rounded-lg border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/60 p-3 space-y-2">
+                  <div className="flex items-center justify-between text-xs font-medium text-slate-600 dark:text-zinc-400">
+                    <span>Dispatch history ({history.length})</span>
+                    <span className="font-mono text-slate-400 dark:text-zinc-500">{activeNotifyVoter.epicNo}</span>
                   </div>
                   {history.length === 0 ? (
-                    <p className="text-xs text-slate-400 py-1">No notifications sent to this voter yet.</p>
+                    <p className="text-xs text-slate-400 dark:text-zinc-500 py-1">No notifications sent to this voter yet.</p>
                   ) : (
                     <div className="max-h-36 overflow-y-auto space-y-1.5">
                       {history.map((item) => (
                         <div
                           key={item.id}
-                          className="rounded-lg border border-slate-200 bg-white p-2.5 text-xs space-y-1"
+                          className="rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-2.5 text-xs space-y-1"
                         >
                           <div className="flex items-center justify-between gap-2">
-                            <span className="font-semibold text-slate-900">
+                            <span className="font-medium text-slate-900 dark:text-zinc-100">
                               {item.channel} · {item.templateType}
                             </span>
-                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                            <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
                               {item.status}
                             </span>
                           </div>
-                          <p className="text-[11px] text-slate-600 line-clamp-2">{item.message}</p>
-                          <div className="text-[10px] text-slate-400 flex items-center justify-between">
+                          <p className="text-xs text-slate-600 dark:text-zinc-300 line-clamp-2">{item.message}</p>
+                          <div className="text-[11px] text-slate-400 dark:text-zinc-500 flex items-center justify-between">
                             <span>By {item.sentByName}</span>
                             <span className="tabular-nums">
                               {new Date(item.createdAt).toLocaleString('en-IN', {
@@ -2383,7 +2378,7 @@ export default function VoterListView() {
               <button
                 type="button"
                 onClick={() => setActiveNotifyVoterId(null)}
-                className="rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                className="rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-2 text-xs font-medium text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800 whitespace-nowrap"
               >
                 Close
               </button>
@@ -2400,10 +2395,10 @@ export default function VoterListView() {
                   });
                   setActiveNotifyVoterId(null);
                 }}
-                className="inline-flex items-center gap-1.5 rounded-full bg-[#0071e3] px-5 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-5 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40 whitespace-nowrap"
               >
                 <Send className="h-3.5 w-3.5" />
-                <span>Send Notification to {activeNotifyVoter.name.split(' ')[0]}</span>
+                <span>Send to {activeNotifyVoter.name.split(' ')[0]}</span>
               </button>
             </div>
           </div>
@@ -2412,54 +2407,54 @@ export default function VoterListView() {
 
       {/* Bulk Individual Voter Notification Modal */}
       {showBulkNotifyModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-slate-200 space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 dark:bg-black/65 p-4 backdrop-blur-[1px]">
+          <div className="w-full max-w-md rounded-xl bg-white dark:bg-zinc-900 p-6 shadow-2xl border border-slate-200 dark:border-zinc-800 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-slate-900">
-                Notify {selectedRowIds.length} Selected Voter(s) Individually
+              <h3 className="text-base font-semibold text-slate-900 dark:text-zinc-100">
+                Notify {selectedRowIds.length} selected voter(s)
               </h3>
-              <button type="button" onClick={() => setShowBulkNotifyModal(false)}>
-                <X className="h-4 w-4 text-slate-500" />
+              <button type="button" onClick={() => setShowBulkNotifyModal(false)} className="text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-200">
+                <X className="h-4 w-4" />
               </button>
             </div>
-            <p className="text-xs text-slate-600">
-              Each selected voter receives a personalized notification containing their individual EPIC number, Part No, Serial No, and Polling Station.
+            <p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed">
+              Each selected voter receives a personalized notification with their EPIC number, part number, serial number, and polling station.
             </p>
             <div className="space-y-3 text-xs">
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Delivery Channel</label>
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">Delivery channel</label>
                 <select
                   value={bulkNotifChannel}
                   onChange={(e) => setBulkNotifChannel(e.target.value as NotificationChannel)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                  className={inputClass}
                 >
                   <option value="WhatsApp">WhatsApp</option>
-                  <option value="SMS">SMS Text</option>
-                  <option value="Voice Call">Voice Call Alert</option>
-                  <option value="Field Slip">Doorstep Field Slip</option>
+                  <option value="SMS">SMS text</option>
+                  <option value="Voice Call">Voice call alert</option>
+                  <option value="Field Slip">Doorstep field slip</option>
                 </select>
               </div>
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Template Type</label>
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">Template type</label>
                 <select
                   value={bulkNotifTemplate}
                   onChange={(e) => setBulkNotifTemplate(e.target.value as NotificationTemplateType)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                  className={inputClass}
                 >
-                  <option value="Polling Slip">Polling Slip (EPIC + Booth + Serial No)</option>
-                  <option value="Verification Reminder">Household Verification Reminder</option>
-                  <option value="Booth Update">Polling Station Location Update</option>
-                  <option value="Custom Message">Custom Notice</option>
+                  <option value="Polling Slip">Polling slip (EPIC, booth and serial no)</option>
+                  <option value="Verification Reminder">Household verification reminder</option>
+                  <option value="Booth Update">Polling station location update</option>
+                  <option value="Custom Message">Custom notice</option>
                 </select>
               </div>
               <div>
-                <label className="block font-semibold text-slate-700 mb-1">Additional Note (Optional)</label>
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">Additional note (optional)</label>
                 <input
                   type="text"
                   value={bulkNotifNote}
                   onChange={(e) => setBulkNotifNote(e.target.value)}
-                  placeholder="Appended to each voter's personalized message..."
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-900"
+                  placeholder="Appended to each personalized message..."
+                  className={inputClass}
                 />
               </div>
             </div>
@@ -2467,7 +2462,7 @@ export default function VoterListView() {
               <button
                 type="button"
                 onClick={() => setShowBulkNotifyModal(false)}
-                className="rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700"
+                className="rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-2 text-xs font-medium text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800 whitespace-nowrap"
               >
                 Cancel
               </button>
@@ -2483,10 +2478,10 @@ export default function VoterListView() {
                   setShowBulkNotifyModal(false);
                   setBulkNotifNote('');
                 }}
-                className="inline-flex items-center gap-1.5 rounded-full bg-[#0071e3] px-5 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-5 py-2 text-xs font-medium text-white hover:bg-blue-700 whitespace-nowrap"
               >
                 <Send className="h-3.5 w-3.5" />
-                <span>Dispatch {selectedRowIds.length} Notifications</span>
+                <span>Send {selectedRowIds.length} notifications</span>
               </button>
             </div>
           </div>

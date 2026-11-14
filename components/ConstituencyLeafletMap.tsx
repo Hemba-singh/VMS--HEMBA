@@ -200,8 +200,8 @@ export default function ConstituencyLeafletMap({
     markersGroup.clearLayers();
 
     voters.forEach((voter) => {
-      const lat = voter.lat ?? 24.6382;
-      const lng = voter.lng ?? 94.0012;
+      const lat = Number.isFinite(voter.lat) ? voter.lat! : 24.6382;
+      const lng = Number.isFinite(voter.lng) ? voter.lng! : 94.0012;
       const cat = normalizeVoterCategory(voter.category || voter.colorState);
       const hex = getCategoryHexColor(cat);
       const isPinpointingThis = pinpointingVoter?.id === voter.id;

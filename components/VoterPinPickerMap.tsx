@@ -64,6 +64,8 @@ export default function VoterPinPickerMap({
   canEdit,
   onChangeCoordinates,
 }: VoterPinPickerMapProps) {
+  const safeLat = Number.isFinite(lat) ? lat : 24.6382;
+  const safeLng = Number.isFinite(lng) ? lng : 94.0012;
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const voterMarkerRef = useRef<L.Marker | null>(null);
@@ -116,7 +118,7 @@ export default function VoterPinPickerMap({
     if (!mapContainerRef.current || mapInstanceRef.current) return;
 
     const map = L.map(mapContainerRef.current, {
-      center: [lat, lng],
+      center: [safeLat, safeLng],
       zoom: 16,
       zoomControl: true,
       attributionControl: true,
@@ -129,7 +131,7 @@ export default function VoterPinPickerMap({
 
     tileLayerRef.current = initialTile;
 
-    const marker = L.marker([lat, lng], {
+    const marker = L.marker([safeLat, safeLng], {
       icon: createVoterIcon(category),
       draggable: canEdit,
     }).addTo(map);
@@ -138,7 +140,7 @@ export default function VoterPinPickerMap({
       `<div style="font-family: -apple-system, sans-serif; font-size: 12px; line-height: 1.4;">
         <div style="font-weight: 700; color: #0f172a;">${voterName}</div>
         <div style="font-family: monospace; font-size: 11px; color: #475569;">${epicNo}${houseNo ? ` · ${houseNo}` : ''}</div>
-        <div style="font-family: monospace; font-size: 10px; color: #64748b; margin-top: 2px;">${lat.toFixed(5)}° N, ${lng.toFixed(5)}° E</div>
+        <div style="font-family: monospace; font-size: 10px; color: #64748b; margin-top: 2px;">${safeLat.toFixed(5)}° N, ${safeLng.toFixed(5)}° E</div>
       </div>`
     );
 
@@ -209,13 +211,13 @@ export default function VoterPinPickerMap({
     const marker = voterMarkerRef.current;
     if (!map || !marker) return;
 
-    marker.setLatLng([lat, lng]);
+    marker.setLatLng([safeLat, safeLng]);
     marker.setIcon(createVoterIcon(category));
     marker.setPopupContent(
       `<div style="font-family: -apple-system, sans-serif; font-size: 12px; line-height: 1.4;">
         <div style="font-weight: 700; color: #0f172a;">${voterName}</div>
         <div style="font-family: monospace; font-size: 11px; color: #475569;">${epicNo}${houseNo ? ` · ${houseNo}` : ''}</div>
-        <div style="font-family: monospace; font-size: 10px; color: #64748b; margin-top: 2px;">${lat.toFixed(5)}° N, ${lng.toFixed(5)}° E</div>
+        <div style="font-family: monospace; font-size: 10px; color: #64748b; margin-top: 2px;">${safeLat.toFixed(5)}° N, ${safeLng.toFixed(5)}° E</div>
       </div>`
     );
 
@@ -244,7 +246,7 @@ export default function VoterPinPickerMap({
 
       const line = L.polyline(
         [
-          [lat, lng],
+          [safeLat, safeLng],
           [pollingStation.lat, pollingStation.lng],
         ],
         {
@@ -256,7 +258,7 @@ export default function VoterPinPickerMap({
       ).addTo(map);
       lineRef.current = line;
     }
-  }, [lat, lng, category, voterName, houseNo, epicNo, pollingStation]);
+  }, [safeLat, safeLng, category, voterName, houseNo, epicNo, pollingStation]);
 
   const handleUseDeviceGps = () => {
     if (!canEdit) return;
@@ -308,8 +310,11 @@ export default function VoterPinPickerMap({
   };
 
   const handleSelectPlace = (place: NominatimResult) => {
-    const nextLat = Number(parseFloat(place.lat).toFixed(5));
-    const nextLng = Number(parseFloat(place.lon).toFixed(5));
+    const rawLat = parseFloat(place.lat);
+    const rawLng = parseFloat(place.lon);
+    if (!Number.isFinite(rawLat) || !Number.isFinite(rawLng)) return;
+    const nextLat = Number(rawLat.toFixed(5));
+    const nextLng = Number(rawLng.toFixed(5));
     if (canEdit) {
       onChangeCoordinates(nextLat, nextLng);
     }
@@ -319,36 +324,36 @@ export default function VoterPinPickerMap({
   };
 
   return (
-    <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden space-y-0">
+    <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
       {/* Top Map Controls & Free Nominatim Search */}
-      <div className="p-2.5 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 space-y-2">
+      <div className="p-3 bg-slate-50 dark:bg-zinc-950/60 border-b border-slate-200 dark:border-zinc-800 space-y-2.5">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
-            <MapPin className="h-3.5 w-3.5 text-[#0071e3]" />
-            <span>OpenStreetMap Exact Location Pinpointer</span>
+          <div className="flex items-center gap-1.5 text-xs font-medium text-slate-800 dark:text-zinc-200">
+            <MapPin className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+            <span>OpenStreetMap location pin</span>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-2">
             {/* Tile Mode Switcher: Street vs Satellite */}
-            <div className="inline-flex rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 p-0.5 text-[11px]">
+            <div className="inline-flex rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-0.5 text-xs">
               <button
                 type="button"
                 onClick={() => setTileMode('street')}
-                className={`px-2 py-0.5 rounded-md font-medium transition-colors ${
+                className={`px-2.5 py-1 rounded-md font-medium whitespace-nowrap transition-colors ${
                   tileMode === 'street'
-                    ? 'bg-[#0071e3] text-white'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100'
                 }`}
               >
-                Street Map
+                Street map
               </button>
               <button
                 type="button"
                 onClick={() => setTileMode('satellite')}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-medium transition-colors ${
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md font-medium whitespace-nowrap transition-colors ${
                   tileMode === 'satellite'
-                    ? 'bg-[#0071e3] text-white'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100'
                 }`}
               >
                 <Layers className="h-3 w-3" />
@@ -361,7 +366,7 @@ export default function VoterPinPickerMap({
                 type="button"
                 onClick={handleUseDeviceGps}
                 disabled={isLocatingGps}
-                className="inline-flex items-center gap-1 rounded-lg bg-[#0071e3] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-blue-600 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap shrink-0"
                 title="Capture your device's live GPS coordinates"
               >
                 {isLocatingGps ? (
@@ -369,7 +374,7 @@ export default function VoterPinPickerMap({
                 ) : (
                   <Crosshair className="h-3 w-3" />
                 )}
-                <span>Use My GPS</span>
+                <span>Use my GPS</span>
               </button>
             )}
           </div>
@@ -379,7 +384,7 @@ export default function VoterPinPickerMap({
         <div className="relative">
           <div className="flex items-center gap-1.5">
             <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 dark:text-zinc-500" />
               <input
                 type="text"
                 value={placeQuery}
@@ -390,15 +395,15 @@ export default function VoterPinPickerMap({
                     handleSearchNominatim(e);
                   }
                 }}
-                placeholder="Search landmark, leikai, or road in Thoubal (e.g. Thoubal Bazar, Athokpam)..."
-                className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 pl-8 pr-3 py-1.5 text-xs text-slate-800 dark:text-slate-200 focus:border-[#0071e3] focus:outline-none"
+                placeholder="Search landmark, leikai, or road in Thoubal..."
+                className="w-full rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 pl-8 pr-3 py-1.5 text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-blue-600 focus:outline-none"
               />
             </div>
             <button
               type="button"
               onClick={handleSearchNominatim}
               disabled={isSearchingPlace || !placeQuery.trim()}
-              className="px-2.5 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 disabled:opacity-40"
+              className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs font-medium text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 disabled:opacity-40 whitespace-nowrap"
             >
               {isSearchingPlace ? 'Searching...' : 'Locate'}
             </button>
@@ -411,7 +416,7 @@ export default function VoterPinPickerMap({
                   });
                 }}
                 title={`Center near PS-${pollingStation.psNo}`}
-                className="px-2 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100"
+                className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs font-medium text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
               </button>
@@ -419,18 +424,18 @@ export default function VoterPinPickerMap({
           </div>
 
           {placeResults.length > 0 && (
-            <div className="absolute left-0 right-0 top-full mt-1 z-30 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+            <div className="absolute left-0 right-0 top-full mt-1 z-30 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-lg divide-y divide-slate-100 dark:divide-zinc-800 text-xs">
               {placeResults.map((p) => (
                 <button
                   key={p.place_id}
                   type="button"
                   onClick={() => handleSelectPlace(p)}
-                  className="w-full text-left px-3 py-2 hover:bg-blue-50/70 dark:hover:bg-slate-800 flex items-center justify-between gap-2"
+                  className="w-full text-left px-3 py-2 hover:bg-slate-50 dark:hover:bg-zinc-800 flex items-center justify-between gap-2"
                 >
-                  <span className="truncate font-medium text-slate-800 dark:text-slate-200">
+                  <span className="truncate font-medium text-slate-800 dark:text-zinc-200">
                     {p.display_name}
                   </span>
-                  <span className="font-mono text-[10px] text-[#0071e3] shrink-0">Pin Here →</span>
+                  <span className="text-xs font-medium text-blue-600 dark:text-blue-400 shrink-0">Pin here</span>
                 </button>
               ))}
             </div>
@@ -439,46 +444,46 @@ export default function VoterPinPickerMap({
       </div>
 
       {/* Interactive Leaflet Map Canvas */}
-      <div className="relative h-64 w-full bg-slate-100 dark:bg-slate-950">
+      <div className="relative h-64 w-full bg-slate-100 dark:bg-zinc-950">
         <div ref={mapContainerRef} className="h-full w-full z-10" />
-        <div className="pointer-events-none absolute bottom-2 left-2 z-20 rounded-lg bg-white/90 dark:bg-slate-900/90 backdrop-blur-xs border border-slate-200 dark:border-slate-700 px-2.5 py-1 text-[11px] text-slate-700 dark:text-slate-300 shadow-xs">
-          {canEdit ? 'Click anywhere on map or drag the pin to set exact house location' : 'View-only mode'}
+        <div className="pointer-events-none absolute bottom-2 left-2 z-20 rounded-lg bg-white/95 dark:bg-zinc-900/95 border border-slate-200 dark:border-zinc-800 px-2.5 py-1 text-xs text-slate-700 dark:text-zinc-300">
+          {canEdit ? 'Click anywhere on map or drag the pin to set house location' : 'View-only mode'}
         </div>
       </div>
 
       {/* Coordinate Readout & Directions Footer */}
-      <div className="p-3 bg-slate-50/90 dark:bg-slate-800/60 border-t border-slate-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-2 text-xs">
+      <div className="p-3 bg-slate-50 dark:bg-zinc-950/60 border-t border-slate-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-2 text-xs">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1.5">
-            <span className="text-slate-500">Lat:</span>
+            <span className="text-slate-500 dark:text-zinc-400">Lat</span>
             <input
               type="number"
               step="0.0001"
               disabled={!canEdit}
-              value={lat}
+              value={safeLat}
               onChange={(e) => {
                 const v = parseFloat(e.target.value);
-                if (!Number.isNaN(v)) onChangeCoordinates(v, lng);
+                if (Number.isFinite(v)) onChangeCoordinates(v, safeLng);
               }}
-              className="w-24 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-0.5 font-mono text-xs text-slate-900 dark:text-slate-100 tabular-nums"
+              className="w-24 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 font-mono text-xs text-slate-900 dark:text-zinc-100 tabular-nums"
             />
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-slate-500">Lng:</span>
+            <span className="text-slate-500 dark:text-zinc-400">Lng</span>
             <input
               type="number"
               step="0.0001"
               disabled={!canEdit}
-              value={lng}
+              value={safeLng}
               onChange={(e) => {
                 const v = parseFloat(e.target.value);
-                if (!Number.isNaN(v)) onChangeCoordinates(lat, v);
+                if (Number.isFinite(v)) onChangeCoordinates(safeLat, v);
               }}
-              className="w-24 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-0.5 font-mono text-xs text-slate-900 dark:text-slate-100 tabular-nums"
+              className="w-24 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-1 font-mono text-xs text-slate-900 dark:text-zinc-100 tabular-nums"
             />
           </div>
           {gpsStatusMsg && (
-            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
               <Check className="h-3 w-3" />
               {gpsStatusMsg}
             </span>
@@ -487,18 +492,18 @@ export default function VoterPinPickerMap({
 
         <div className="flex items-center gap-2">
           <a
-            href={`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=18/${lat}/${lng}`}
+            href={`https://www.openstreetmap.org/?mlat=${safeLat}&mlon=${safeLng}#map=18/${safeLat}/${safeLng}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-[11px] font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100"
+            className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs font-medium text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 whitespace-nowrap"
           >
-            OSM Link ↗
+            Open in OSM
           </a>
           <a
-            href={`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`}
+            href={`https://www.google.com/maps/dir/?api=1&destination=${safeLat},${safeLng}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#0071e3] text-white text-[11px] font-semibold hover:bg-blue-600"
+            className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 whitespace-nowrap"
           >
             <Navigation className="h-3 w-3" />
             Directions

@@ -1,25 +1,20 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   X,
   ChevronLeft,
   ChevronRight,
   MapPin,
-  Navigation,
   FileText,
   UserCheck,
   Calendar,
   AlertTriangle,
   Edit3,
-  PlusCircle,
   CheckCircle2,
-  Clock,
   Trash2,
   ShieldAlert,
   Phone,
-  Users,
-  History,
   Tag,
   Check,
   BellRing,
@@ -42,8 +37,8 @@ import { VOTER_CATEGORIES, getVoterCategoryStyles, normalizeVoterCategory } from
 const VoterPinPickerMap = dynamic(() => import('./VoterPinPickerMap'), {
   ssr: false,
   loading: () => (
-    <div className="h-64 w-full rounded-xl border border-slate-200 bg-slate-100 flex items-center justify-center text-xs text-slate-500">
-      Loading OpenStreetMap canvas...
+    <div className="h-64 w-full rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 flex items-center justify-center text-xs text-slate-500 dark:text-zinc-400">
+      Loading map...
     </div>
   ),
 });
@@ -74,7 +69,6 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
     canDeleteVoter,
     sendVoterNotification,
     updateVoter,
-    bulkUpdateVoters,
     softDeleteVoter,
     addNote,
     addTask,
@@ -99,7 +93,7 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
     fatherName: voter?.fatherName || '',
     motherName: voter?.motherName || '',
     spouseName: voter?.spouseName || '',
-    age: voter?.age || 18,
+    age: voter && Number.isFinite(voter.age) ? voter.age : 18,
     gender: (voter?.gender || 'M') as 'M' | 'F' | 'O',
     phone: voter?.phone || '',
     alternatePhone: voter?.alternatePhone || '',
@@ -108,8 +102,8 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
     rationCardNo: voter?.rationCardNo || '',
     specialNeeds: (voter?.specialNeeds || 'None') as 'None' | 'Elderly (80+)' | 'PwD' | 'Bedridden',
     addressId: voter?.addressId || '',
-    lat: voter?.lat || 24.6382,
-    lng: voter?.lng || 94.0012,
+    lat: voter && Number.isFinite(voter.lat) ? voter.lat : 24.6382,
+    lng: voter && Number.isFinite(voter.lng) ? voter.lng : 94.0012,
     status: (voter?.status || 'Pending') as VoterStatus,
     assignedWorkerId: voter?.assignedWorkerId || '',
   }));
@@ -148,7 +142,7 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
       fatherName: voter.fatherName,
       motherName: voter.motherName,
       spouseName: voter.spouseName || '',
-      age: voter.age,
+      age: Number.isFinite(voter.age) ? voter.age : 18,
       gender: voter.gender,
       phone: voter.phone,
       alternatePhone: voter.alternatePhone || '',
@@ -157,8 +151,8 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
       rationCardNo: voter.rationCardNo || '',
       specialNeeds: voter.specialNeeds || 'None',
       addressId: voter.addressId,
-      lat: voter.lat || 24.6382,
-      lng: voter.lng || 94.0012,
+      lat: Number.isFinite(voter.lat) ? voter.lat : 24.6382,
+      lng: Number.isFinite(voter.lng) ? voter.lng : 94.0012,
       status: voter.status,
       assignedWorkerId: voter.assignedWorkerId,
     });
@@ -208,8 +202,12 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
   };
 
   const handleSaveChanges = () => {
-    const nextLat = Number(formState.lat);
-    const nextLng = Number(formState.lng);
+    const parsedLat = Number(formState.lat);
+    const parsedLng = Number(formState.lng);
+    const parsedAge = Number(formState.age);
+    const nextLat = Number.isFinite(parsedLat) ? parsedLat : (Number.isFinite(voter.lat) ? voter.lat! : 24.6382);
+    const nextLng = Number.isFinite(parsedLng) ? parsedLng : (Number.isFinite(voter.lng) ? voter.lng! : 94.0012);
+    const nextAge = Math.max(18, Math.round(Number.isFinite(parsedAge) ? parsedAge : (Number.isFinite(voter.age) ? voter.age : 18)));
     updateVoter(
       voter.id,
       {
@@ -218,7 +216,7 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
         fatherName: formState.fatherName,
         motherName: formState.motherName,
         spouseName: formState.spouseName || undefined,
-        age: Number(formState.age),
+        age: nextAge,
         gender: formState.gender,
         phone: formState.phone,
         alternatePhone: formState.alternatePhone || undefined,
@@ -281,29 +279,32 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
     updateVoter(voter.id, { tags: nextTags }, exists ? `Removed tag ${tag}` : `Added tag ${tag}`);
   };
 
-  const statusColorMap: Record<VoterStatus, string> = {
-    Verified: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    Pending: 'bg-amber-50 text-amber-700 border-amber-200',
-    Issues: 'bg-red-50 text-red-700 border-red-200',
-    New: 'bg-blue-50 text-blue-700 border-blue-200',
-    Removed: 'bg-slate-100 text-slate-600 border-slate-300',
+  const statusTextClass: Record<VoterStatus, string> = {
+    Verified: 'text-emerald-700 dark:text-emerald-400',
+    Pending: 'text-amber-700 dark:text-amber-400',
+    Issues: 'text-red-700 dark:text-red-400',
+    New: 'text-blue-700 dark:text-blue-400',
+    Removed: 'text-slate-500 dark:text-zinc-500',
   };
 
   const currentCategory = normalizeVoterCategory(voter.category || voter.colorState);
-  const currentCategoryStyles = getVoterCategoryStyles(currentCategory);
+
+  const inputClass =
+    'w-full rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-xs text-slate-900 dark:text-zinc-100 placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-blue-600 focus:outline-none disabled:bg-slate-50 dark:disabled:bg-zinc-900 disabled:text-slate-500 dark:disabled:text-zinc-400';
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 backdrop-blur-[2px]">
-      <div className="relative flex h-full w-full max-w-2xl flex-col bg-white shadow-2xl border-l border-slate-200">
+    <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/40 dark:bg-black/60 backdrop-blur-[1px]">
+      <div className="relative flex h-full w-full max-w-2xl flex-col bg-white dark:bg-zinc-900 shadow-2xl border-l border-slate-200 dark:border-zinc-800">
         {/* Drawer Header */}
-        <div className={`border-b border-slate-200 bg-slate-50/80 px-6 py-4 ${currentCategoryStyles.rowBorder}`}>
+        <div className="border-b border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/50 px-6 pt-4 pb-0">
           <div className="flex items-center justify-between gap-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${statusColorMap[voter.status]}`}>
+            <div className="flex flex-wrap items-center gap-2.5 text-xs">
+              <span className={`font-semibold ${statusTextClass[voter.status]}`}>
                 {voter.status}
               </span>
+              <span className="text-slate-300 dark:text-zinc-700">·</span>
               {/* Pure Color Dots Switcher */}
-              <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1">
+              <div className="inline-flex items-center gap-1.5">
                 {VOTER_CATEGORIES.map((cat) => {
                   const st = getVoterCategoryStyles(cat);
                   const isActive = currentCategory === cat;
@@ -318,7 +319,7 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
                         }
                       }}
                       className={`h-3.5 w-3.5 rounded-full transition-all disabled:opacity-50 ${st.dot} ${
-                        isActive ? `ring-2 ring-offset-1 ${st.ring} scale-110` : 'opacity-40 hover:opacity-100'
+                        isActive ? `ring-2 ring-offset-1 dark:ring-offset-zinc-900 ${st.ring} scale-110` : 'opacity-40 hover:opacity-100'
                       }`}
                       aria-label="Set color"
                     />
@@ -326,26 +327,31 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
                 })}
               </div>
               {voter.status === 'Issues' && voter.issueType && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">
-                  <AlertTriangle className="h-3 w-3" />
-                  {voter.issueType}
-                </span>
+                <>
+                  <span className="text-slate-300 dark:text-zinc-700">·</span>
+                  <span className="inline-flex items-center gap-1 text-red-700 dark:text-red-400 font-medium">
+                    <AlertTriangle className="h-3 w-3" />
+                    {voter.issueType}
+                  </span>
+                </>
               )}
-              <span className="font-mono text-xs font-semibold text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded">
+              <span className="text-slate-300 dark:text-zinc-700">·</span>
+              <span className="font-mono font-semibold text-slate-800 dark:text-zinc-200">
                 {voter.epicNo}
               </span>
-              <span className="text-xs text-slate-500 font-mono">
-                Part {voter.partNo} · Sl. {voter.serialNo}
+              <span className="text-slate-300 dark:text-zinc-700">·</span>
+              <span className="text-slate-500 dark:text-zinc-400 font-mono tabular-nums">
+                Part {Number.isFinite(voter.partNo) ? voter.partNo : '-'} · Sl. {Number.isFinite(voter.serialNo) ? voter.serialNo : '-'}
               </span>
             </div>
 
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 shrink-0">
               <button
                 type="button"
                 disabled={!prevId}
                 onClick={() => prevId && setSelectedVoterId(prevId)}
-                title="Previous Voter"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+                title="Previous voter"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 disabled:opacity-40"
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
@@ -353,15 +359,15 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
                 type="button"
                 disabled={!nextId}
                 onClick={() => nextId && setSelectedVoterId(nextId)}
-                title="Next Voter"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+                title="Next voter"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 disabled:opacity-40"
               >
                 <ChevronRight className="h-4 w-4" />
               </button>
               <button
                 type="button"
                 onClick={handleCloseAttempt}
-                className="ml-2 inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-200/60 hover:text-slate-800"
+                className="ml-1 inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 dark:text-zinc-400 hover:bg-slate-200/70 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-zinc-100"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -370,21 +376,21 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
 
           <div className="mt-3 flex flex-wrap items-baseline justify-between gap-2">
             <div>
-              <h2 className="text-xl font-bold tracking-tight text-slate-900">{voter.name}</h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Family ID: <span className="font-mono font-medium text-slate-700">{family?.familyCode || voter.familyId}</span>
-                {' · '}Age: <span className="font-semibold text-slate-700 tabular-nums">{voter.age}</span>
-                {' · '}Gender: <span className="font-semibold text-slate-700">{voter.gender}</span>
-                {' · '}PS: <span className="font-semibold text-blue-700">PS-{pollingStation?.psNo} ({villagePart?.name})</span>
+              <h2 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-zinc-100">{voter.name}</h2>
+              <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+                Family <span className="font-mono font-medium text-slate-700 dark:text-zinc-300">{family?.familyCode || voter.familyId}</span>
+                {' · '}Age <span className="font-medium text-slate-700 dark:text-zinc-300 tabular-nums">{Number.isFinite(voter.age) ? voter.age : '-'}</span>
+                {' · '}<span className="font-medium text-slate-700 dark:text-zinc-300">{voter.gender}</span>
+                {' · '}<span className="font-medium text-blue-600 dark:text-blue-400">PS-{pollingStation?.psNo ?? '-'} ({villagePart?.name})</span>
               </p>
             </div>
-            <span className="text-[11px] text-slate-400 tabular-nums">
+            <span className="text-xs text-slate-400 dark:text-zinc-500 tabular-nums">
               Updated {new Date(voter.updatedAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
             </span>
           </div>
 
           {/* Drawer Navigation Tabs */}
-          <div className="mt-4 flex items-center gap-1 border-b border-slate-200 -mb-4 overflow-x-auto">
+          <div className="mt-4 flex items-center gap-1 overflow-x-auto">
             {[
               { id: 'overview', label: 'Overview' },
               { id: 'notify', label: `Notify (${voterNotifs.length})` },
@@ -397,10 +403,10 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveDrawerTab(tab.id as typeof activeDrawerTab)}
-                className={`px-3.5 py-2.5 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap ${
+                className={`px-3.5 py-2.5 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
                   activeDrawerTab === tab.id
-                    ? 'border-[#0071e3] text-[#0071e3]'
-                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                    ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100'
                 }`}
               >
                 {tab.label}
@@ -411,18 +417,18 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
 
         {/* Unsaved Changes Warning Banner */}
         {showUnsavedWarning && (
-          <div className="bg-amber-50 border-b border-amber-200 px-6 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs text-amber-900 font-medium">
-              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+          <div className="bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900/60 px-6 py-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs text-amber-900 dark:text-amber-300 font-medium">
+              <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
               <span>You have unsaved edits on this voter record. Discard changes?</span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => setShowUnsavedWarning(false)}
-                className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-300 rounded-md"
+                className="px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-zinc-200 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg whitespace-nowrap"
               >
-                Keep Editing
+                Keep editing
               </button>
               <button
                 type="button"
@@ -431,9 +437,9 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
                   setShowUnsavedWarning(false);
                   setSelectedVoterId(null);
                 }}
-                className="px-2.5 py-1 text-xs font-medium text-white bg-red-600 rounded-md"
+                className="px-2.5 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg whitespace-nowrap"
               >
-                Discard & Close
+                Discard
               </button>
             </div>
           </div>
@@ -444,35 +450,36 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
           {activeDrawerTab === 'overview' && (
             <>
               {/* Quick Actions Bar */}
-              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-                <div className="flex items-center justify-between mb-2.5">
-                  <span className="text-xs font-semibold text-slate-700">Quick Field Actions</span>
-                  <span className="text-[11px] text-slate-500">Status Workflow: New → Pending → Verified / Issues</span>
+              <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/50 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs font-semibold text-slate-800 dark:text-zinc-200">Quick actions</span>
+                  <span className="text-xs text-slate-500 dark:text-zinc-400">New, Pending, Verified or Issues</span>
                 </div>
                 <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                   <button
                     type="button"
                     onClick={() => setActiveDrawerTab('notify')}
-                    className="flex flex-col items-center justify-center gap-1 rounded-lg border border-blue-200 bg-blue-50/60 p-2.5 text-xs font-semibold text-[#0071e3] hover:bg-blue-100/70 transition-colors"
+                    className="flex flex-col items-center justify-center gap-1.5 rounded-lg border border-blue-200 dark:border-blue-900/60 bg-blue-50/70 dark:bg-blue-950/30 p-2.5 text-xs font-medium text-blue-700 dark:text-blue-400 hover:bg-blue-100/70 dark:hover:bg-blue-950/50 transition-colors"
                   >
-                    <BellRing className="h-4 w-4 text-[#0071e3]" />
-                    <span className="whitespace-nowrap">Notify Voter</span>
+                    <BellRing className="h-4 w-4" />
+                    <span className="whitespace-nowrap">Notify</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setActiveDrawerTab('notes')}
-                    className="flex flex-col items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white p-2.5 text-xs font-medium text-slate-700 hover:border-blue-400 hover:text-blue-600 transition-colors"
+                    className="flex flex-col items-center justify-center gap-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-2.5 text-xs font-medium text-slate-700 dark:text-zinc-300 hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
                   >
-                    <FileText className="h-4 w-4 text-blue-600" />
-                    <span className="whitespace-nowrap">Add Note</span>
+                    <FileText className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                    <span className="whitespace-nowrap">Add note</span>
                   </button>
                   <button
                     type="button"
+                    disabled={!canEditVoter}
                     onClick={() => setIsEditing(true)}
-                    className="flex flex-col items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white p-2.5 text-xs font-medium text-slate-700 hover:border-blue-400 hover:text-blue-600 transition-colors"
+                    className="flex flex-col items-center justify-center gap-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-2.5 text-xs font-medium text-slate-700 dark:text-zinc-300 hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors disabled:opacity-40"
                   >
-                    <UserCheck className="h-4 w-4 text-emerald-600" />
-                    <span className="whitespace-nowrap">Assign Worker</span>
+                    <UserCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                    <span className="whitespace-nowrap">Assign</span>
                   </button>
                   <button
                     type="button"
@@ -480,55 +487,58 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
                       setNewTaskType('Meeting');
                       setActiveDrawerTab('tasks');
                     }}
-                    className="flex flex-col items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white p-2.5 text-xs font-medium text-slate-700 hover:border-blue-400 hover:text-blue-600 transition-colors"
+                    className="flex flex-col items-center justify-center gap-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-2.5 text-xs font-medium text-slate-700 dark:text-zinc-300 hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
                   >
-                    <Calendar className="h-4 w-4 text-indigo-600" />
-                    <span className="whitespace-nowrap">Schedule Meet</span>
+                    <Calendar className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                    <span className="whitespace-nowrap">Schedule</span>
                   </button>
                   <button
                     type="button"
+                    disabled={!canEditVoter}
                     onClick={() => setShowIssueModal((v) => !v)}
-                    className="flex flex-col items-center justify-center gap-1 rounded-lg border border-red-200 bg-red-50/50 p-2.5 text-xs font-medium text-red-700 hover:bg-red-100/60 transition-colors"
+                    className="flex flex-col items-center justify-center gap-1.5 rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50/50 dark:bg-red-950/30 p-2.5 text-xs font-medium text-red-700 dark:text-red-400 hover:bg-red-100/60 dark:hover:bg-red-950/50 transition-colors disabled:opacity-40"
                   >
-                    <AlertTriangle className="h-4 w-4 text-red-600" />
-                    <span className="whitespace-nowrap">Mark Issue</span>
+                    <AlertTriangle className="h-4 w-4" />
+                    <span className="whitespace-nowrap">Flag issue</span>
                   </button>
                   <button
                     type="button"
+                    disabled={!canEditVoter}
                     onClick={() => {
                       updateVoter(voter.id, { status: 'Verified' }, 'Confirmed in field verification');
                     }}
-                    className="flex flex-col items-center justify-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50/50 p-2.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100/60 transition-colors"
+                    className="flex flex-col items-center justify-center gap-1.5 rounded-lg border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/50 dark:bg-emerald-950/30 p-2.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/50 transition-colors disabled:opacity-40"
                   >
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                    <span className="whitespace-nowrap">Verify Now</span>
+                    <CheckCircle2 className="h-4 w-4" />
+                    <span className="whitespace-nowrap">Verify now</span>
                   </button>
                 </div>
               </div>
 
               {/* Mark Issue / Resolve Issue Panel */}
               {(showIssueModal || voter.status === 'Issues') && (
-                <div className="rounded-xl border border-red-200 bg-red-50/40 p-4 space-y-3">
+                <div className="rounded-xl border border-red-200 dark:border-red-900/60 bg-red-50/50 dark:bg-red-950/25 p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <ShieldAlert className="h-4 w-4 text-red-600" />
-                      <h4 className="text-xs font-bold text-red-900">
-                        {voter.status === 'Issues' ? `Active Issue: ${voter.issueType || 'Flagged'}` : 'Flag Electoral Roll Issue'}
+                      <ShieldAlert className="h-4 w-4 text-red-600 dark:text-red-400" />
+                      <h4 className="text-xs font-semibold text-red-900 dark:text-red-300">
+                        {voter.status === 'Issues' ? `Active issue (${voter.issueType || 'Flagged'})` : 'Flag electoral roll issue'}
                       </h4>
                     </div>
                     {showIssueModal && (
-                      <button type="button" onClick={() => setShowIssueModal(false)} className="text-xs text-slate-500 hover:text-slate-700">
+                      <button type="button" onClick={() => setShowIssueModal(false)} className="text-xs text-slate-500 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-200">
                         Close
                       </button>
                     )}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[11px] font-medium text-slate-700 mb-1">Issue Classification (Required)</label>
+                      <label className="block text-xs font-medium text-slate-700 dark:text-zinc-300 mb-1">Issue classification</label>
                       <select
+                        disabled={!canEditVoter}
                         value={selectedIssueType}
                         onChange={(e) => setSelectedIssueType(e.target.value as IssueType)}
-                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800"
+                        className={inputClass}
                       >
                         {issueTypes.map((it) => (
                           <option key={it} value={it}>
@@ -538,94 +548,100 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[11px] font-medium text-slate-700 mb-1">Field Note / Resolution Details</label>
+                      <label className="block text-xs font-medium text-slate-700 dark:text-zinc-300 mb-1">Resolution note</label>
                       <input
                         type="text"
+                        disabled={!canEditVoter}
                         value={issueResolutionText}
                         onChange={(e) => setIssueResolutionText(e.target.value)}
-                        placeholder="Enter reason or resolution note to close..."
-                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800"
+                        placeholder="Enter reason or resolution note..."
+                        className={inputClass}
                       />
                     </div>
                   </div>
-                  <div className="flex items-center justify-end gap-2">
-                    {voter.status === 'Issues' && (
+                  {canEditVoter && (
+                    <div className="flex items-center justify-end gap-2">
+                      {voter.status === 'Issues' && (
+                        <button
+                          type="button"
+                          onClick={handleResolveIssue}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 whitespace-nowrap"
+                        >
+                          Resolve and move to pending
+                        </button>
+                      )}
                       <button
                         type="button"
-                        onClick={handleResolveIssue}
-                        className="px-3 py-1.5 rounded-full bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700"
+                        onClick={handleMarkIssue}
+                        className="px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-medium hover:bg-red-700 whitespace-nowrap"
                       >
-                        Resolve Issue → Move to Pending
+                        Save issue flag
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={handleMarkIssue}
-                      className="px-3 py-1.5 rounded-full bg-red-600 text-white text-xs font-medium hover:bg-red-700"
-                    >
-                      Save Issue Flag
-                    </button>
-                  </div>
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* Personal Info Section */}
-              <div className="rounded-xl border border-slate-200 p-4 space-y-4">
+              <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-slate-900">1. Personal Information</h3>
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Personal information</h3>
                   {canEditVoter && (
                     <button
                       type="button"
                       onClick={() => setIsEditing((v) => !v)}
-                      className="inline-flex items-center gap-1 text-xs font-medium text-[#0071e3] hover:underline"
+                      className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
                     >
                       <Edit3 className="h-3.5 w-3.5" />
-                      {isEditing ? 'Editing Active' : 'Edit Fields'}
+                      {isEditing ? 'Editing active' : 'Edit fields'}
                     </button>
                   )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
                   <div>
-                    <label className="block text-slate-500 mb-1">Full Name (Electoral Roll)</label>
+                    <label className="block text-slate-500 dark:text-zinc-400 mb-1">Full name (Electoral roll)</label>
                     <input
                       type="text"
                       disabled={!canEditVoter}
                       value={formState.name}
                       onChange={(e) => handleFieldChange('name', e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 font-medium focus:border-[#0071e3] focus:outline-none disabled:bg-slate-50"
+                      className={`${inputClass} font-medium`}
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-500 mb-1">Local / Clan Reference</label>
+                    <label className="block text-slate-500 dark:text-zinc-400 mb-1">Local or clan reference</label>
                     <input
                       type="text"
                       disabled={!canEditVoter}
                       value={formState.nameLocal}
                       onChange={(e) => handleFieldChange('nameLocal', e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 focus:border-[#0071e3] focus:outline-none disabled:bg-slate-50"
+                      className={inputClass}
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-slate-500 mb-1">Age (Years)</label>
+                      <label className="block text-slate-500 dark:text-zinc-400 mb-1">Age</label>
                       <input
                         type="number"
                         min={18}
                         max={120}
                         disabled={!canEditVoter}
-                        value={formState.age}
-                        onChange={(e) => handleFieldChange('age', Number(e.target.value))}
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 tabular-nums focus:border-[#0071e3] focus:outline-none"
+                        value={Number.isFinite(formState.age) ? formState.age : 18}
+                        onChange={(e) => {
+                          const nextAge = Number(e.target.value);
+                          handleFieldChange('age', Number.isFinite(nextAge) ? nextAge : 18);
+                        }}
+                        className={`${inputClass} tabular-nums`}
                       />
                     </div>
                     <div>
-                      <label className="block text-slate-500 mb-1">Gender</label>
+                      <label className="block text-slate-500 dark:text-zinc-400 mb-1">Gender</label>
                       <select
                         disabled={!canEditVoter}
                         value={formState.gender}
                         onChange={(e) => handleFieldChange('gender', e.target.value as 'M' | 'F' | 'O')}
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 focus:border-[#0071e3] focus:outline-none"
+                        className={inputClass}
                       >
                         <option value="M">Male (M)</option>
                         <option value="F">Female (F)</option>
@@ -634,55 +650,55 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
                     </div>
                   </div>
                   <div>
-                    <label className="block text-slate-500 mb-1">Phone Number (Privacy Masked)</label>
+                    <label className="block text-slate-500 dark:text-zinc-400 mb-1">Phone number</label>
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
                         disabled={!canEditVoter || !revealFullPhone}
                         value={revealFullPhone ? formState.phone : maskPhoneNumber(formState.phone, false)}
                         onChange={(e) => handleFieldChange('phone', e.target.value)}
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-slate-900 focus:border-[#0071e3] focus:outline-none disabled:bg-slate-50"
+                        className={`${inputClass} font-mono`}
                       />
                       <a
                         href={`tel:${voter.phone}`}
-                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
-                        title="Call Voter"
+                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950 text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800"
+                        title="Call voter"
                       >
                         <Phone className="h-4 w-4" />
                       </a>
                     </div>
                   </div>
                   <div>
-                    <label className="block text-slate-500 mb-1">Occupation & Livelihood</label>
+                    <label className="block text-slate-500 dark:text-zinc-400 mb-1">Occupation</label>
                     <input
                       type="text"
                       disabled={!canEditVoter}
                       value={formState.occupation}
                       onChange={(e) => handleFieldChange('occupation', e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 focus:border-[#0071e3] focus:outline-none"
+                      className={inputClass}
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-500 mb-1">Special Assistance Flag</label>
+                    <label className="block text-slate-500 dark:text-zinc-400 mb-1">Special assistance</label>
                     <select
                       disabled={!canEditVoter}
                       value={formState.specialNeeds}
                       onChange={(e) => handleFieldChange('specialNeeds', e.target.value as typeof formState.specialNeeds)}
-                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 focus:border-[#0071e3] focus:outline-none"
+                      className={inputClass}
                     >
                       <option value="None">None</option>
-                      <option value="Elderly (80+)">Elderly (80+ Home Voting Eligible)</option>
-                      <option value="PwD">Person with Disability (Wheelchair)</option>
-                      <option value="Bedridden">Bedridden / Medical Assistance</option>
+                      <option value="Elderly (80+)">Elderly (80+ home voting)</option>
+                      <option value="PwD">Person with disability</option>
+                      <option value="Bedridden">Bedridden / medical assistance</option>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-slate-500 mb-1">Assigned Field Worker</label>
+                    <label className="block text-slate-500 dark:text-zinc-400 mb-1">Assigned field worker</label>
                     <select
                       disabled={!canEditVoter}
                       value={formState.assignedWorkerId}
                       onChange={(e) => handleFieldChange('assignedWorkerId', e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900 focus:border-[#0071e3] focus:outline-none"
+                      className={inputClass}
                     >
                       {users
                         .filter((u) => u.role === 'Field Worker' || u.role === 'Polling Station Incharge')
@@ -694,67 +710,65 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-slate-500 mb-1">Verification Status</label>
+                    <label className="block text-slate-500 dark:text-zinc-400 mb-1">Verification status</label>
                     <select
                       disabled={!canEditVoter}
                       value={formState.status}
                       onChange={(e) => handleFieldChange('status', e.target.value as VoterStatus)}
-                      className="w-full rounded-lg border border-slate-200 px-3 py-2 font-semibold text-slate-900 focus:border-[#0071e3] focus:outline-none"
+                      className={`${inputClass} font-medium`}
                     >
                       <option value="Verified">Verified</option>
                       <option value="Pending">Pending</option>
                       <option value="Issues">Issues</option>
-                      <option value="New">Newly Imported</option>
+                      <option value="New">Newly imported</option>
                     </select>
                   </div>
                 </div>
               </div>
 
               {/* Family Info Section */}
-              <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+              <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-3">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-slate-900">2. Family & Relations</h3>
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Family and relations</h3>
                   <button
                     type="button"
                     onClick={() => setActiveDrawerTab('family')}
-                    className="text-xs font-medium text-[#0071e3] hover:underline"
+                    className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
                   >
-                    View All {familyMembers.length} Family Members →
+                    View all {familyMembers.length} members
                   </button>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                   <div>
-                    <label className="block text-slate-500 mb-1">Father&apos;s Name</label>
+                    <label className="block text-slate-500 dark:text-zinc-400 mb-1">Father&apos;s name</label>
                     <input
                       type="text"
                       disabled={!canEditVoter}
                       value={formState.fatherName}
                       onChange={(e) => handleFieldChange('fatherName', e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900"
+                      className={inputClass}
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-500 mb-1">Mother&apos;s Name</label>
+                    <label className="block text-slate-500 dark:text-zinc-400 mb-1">Mother&apos;s name</label>
                     <input
                       type="text"
                       disabled={!canEditVoter}
                       value={formState.motherName}
                       onChange={(e) => handleFieldChange('motherName', e.target.value)}
-                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900"
+                      className={inputClass}
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-500 mb-1">Spouse / Close Member</label>
+                    <label className="block text-slate-500 dark:text-zinc-400 mb-1">Spouse or close member</label>
                     {voter.spouseVoterId ? (
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedVoterId(voter.spouseVoterId!)}
-                          className="w-full text-left rounded-lg border border-blue-200 bg-blue-50/50 px-3 py-2 text-[#0071e3] font-medium hover:bg-blue-100/60 truncate"
-                        >
-                          {voter.spouseName || 'Linked Spouse'} ↗
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedVoterId(voter.spouseVoterId!)}
+                        className="w-full text-left rounded-lg border border-blue-200 dark:border-blue-900/60 bg-blue-50/50 dark:bg-blue-950/30 px-3 py-2 text-blue-700 dark:text-blue-400 font-medium hover:bg-blue-100/60 dark:hover:bg-blue-950/50 truncate"
+                      >
+                        {voter.spouseName || 'Linked spouse'}
+                      </button>
                     ) : (
                       <input
                         type="text"
@@ -762,7 +776,7 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
                         value={formState.spouseName}
                         onChange={(e) => handleFieldChange('spouseName', e.target.value)}
                         placeholder="None recorded"
-                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-slate-900"
+                        className={inputClass}
                       />
                     )}
                   </div>
@@ -770,47 +784,47 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
               </div>
 
               {/* Address & Location Section */}
-              <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+              <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <MapPin className="h-4 w-4 text-[#0071e3]" />
-                    <h3 className="text-sm font-semibold text-slate-900">3. Address, Hierarchy & GPS Location</h3>
+                    <MapPin className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                    <h3 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Address and GPS location</h3>
                   </div>
-                  <span className="text-[11px] font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
-                    GPS Accuracy ±{voter.gpsAccuracyMeters || 5}m
+                  <span className="text-xs font-mono text-emerald-700 dark:text-emerald-400 tabular-nums">
+                    GPS ±{Number.isFinite(voter.gpsAccuracyMeters) ? voter.gpsAccuracyMeters : 5}m
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs bg-slate-50 p-3 rounded-lg border border-slate-200/80">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs bg-slate-50 dark:bg-zinc-950 p-3 rounded-lg">
                   <div>
-                    <span className="text-slate-400 block text-[11px]">Village</span>
-                    <span className="font-semibold text-slate-800">{village?.name} ({village?.code})</span>
+                    <span className="text-slate-500 dark:text-zinc-400 block">Village</span>
+                    <span className="font-medium text-slate-900 dark:text-zinc-100">{village?.name} ({village?.code})</span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block text-[11px]">Village Part (Leikai)</span>
-                    <span className="font-semibold text-slate-800">{villagePart?.name}</span>
+                    <span className="text-slate-500 dark:text-zinc-400 block">Leikai / part</span>
+                    <span className="font-medium text-slate-900 dark:text-zinc-100">{villagePart?.name}</span>
                   </div>
                   <div>
-                    <span className="text-slate-400 block text-[11px]">Polling Station</span>
-                    <span className="font-semibold text-[#0071e3]">PS-{pollingStation?.psNo}: {pollingStation?.name}</span>
+                    <span className="text-slate-500 dark:text-zinc-400 block">Polling station</span>
+                    <span className="font-medium text-blue-600 dark:text-blue-400">PS-{pollingStation?.psNo} {pollingStation?.name}</span>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs text-slate-500 mb-1">Household Street Address</label>
+                  <label className="block text-xs text-slate-500 dark:text-zinc-400 mb-1">Household street address</label>
                   <input
                     type="text"
                     disabled={!canEditVoter}
                     value={formState.addressId}
                     onChange={(e) => handleFieldChange('addressId', e.target.value)}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-900"
+                    className={inputClass}
                   />
                 </div>
 
                 {/* Interactive OpenStreetMap & Leaflet Pin Picker */}
                 <VoterPinPickerMap
-                  lat={Number(formState.lat)}
-                  lng={Number(formState.lng)}
+                  lat={Number.isFinite(Number(formState.lat)) ? Number(formState.lat) : 24.6382}
+                  lng={Number.isFinite(Number(formState.lng)) ? Number(formState.lng) : 94.0012}
                   category={currentCategory}
                   voterName={voter.name}
                   houseNo={voter.houseNo}
@@ -834,39 +848,39 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
                 />
 
                 {canEditVoter && (
-                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-blue-50/70 dark:bg-slate-800/70 border border-blue-200/80 dark:border-slate-700 px-3 py-2 text-xs">
-                    <label className="flex items-center gap-2 text-slate-700 dark:text-slate-300 cursor-pointer">
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-slate-50 dark:bg-zinc-950 px-3 py-2.5 text-xs">
+                    <label className="flex items-center gap-2 text-slate-700 dark:text-zinc-300 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={syncFamilyGps}
                         onChange={(e) => setSyncFamilyGps(e.target.checked)}
-                        className="rounded border-slate-300 text-[#0071e3]"
+                        className="rounded border-slate-300 dark:border-zinc-700 text-blue-600"
                       />
                       <span>
-                        Apply exact house pin to all <strong>{familyMembers.length}</strong> household members (
+                        Apply pin to all <strong className="tabular-nums">{familyMembers.length}</strong> household members (
                         <span className="font-mono">{family?.familyCode || voter.familyId}</span>)
                       </span>
                     </label>
                     <button
                       type="button"
                       onClick={handleSaveChanges}
-                      className="inline-flex items-center gap-1 rounded-full bg-[#0071e3] px-3.5 py-1 text-xs font-semibold text-white hover:bg-blue-600 shadow-2xs"
+                      className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 whitespace-nowrap"
                     >
                       <Check className="h-3.5 w-3.5" />
-                      <span>Save Pin Location</span>
+                      <span>Save pin</span>
                     </button>
                   </div>
                 )}
               </div>
 
               {/* Tags Section */}
-              <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+              <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
-                    <Tag className="h-4 w-4 text-slate-600" />
-                    <h3 className="text-sm font-semibold text-slate-900">4. Household & Voter Tags</h3>
+                    <Tag className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
+                    <h3 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">Voter tags</h3>
                   </div>
-                  <span className="text-[11px] text-slate-400">Click to toggle (Max 10)</span>
+                  <span className="text-xs text-slate-400 dark:text-zinc-500">Max 10 tags</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {availableTags.map((tag) => {
@@ -875,11 +889,12 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
                       <button
                         key={tag}
                         type="button"
+                        disabled={!canEditVoter}
                         onClick={() => handleToggleTag(tag)}
-                        className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium border transition-colors ${
+                        className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-medium border transition-colors whitespace-nowrap disabled:opacity-50 ${
                           active
-                            ? 'border-[#0071e3] bg-blue-50 text-[#0071e3]'
-                            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                            ? 'border-blue-600 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400'
+                            : 'border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-600 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-800'
                         }`}
                       >
                         {active && <Check className="h-3 w-3" />}
@@ -891,36 +906,40 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
               </div>
 
               {/* Active Tasks Preview in Overview */}
-              <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+              <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-3">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-slate-900">5. Open Tasks & Notifications ({voterTasks.length})</h3>
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
+                    Open tasks <span className="text-slate-400 dark:text-zinc-500 font-normal tabular-nums">({voterTasks.length})</span>
+                  </h3>
                   <button
                     type="button"
                     onClick={() => setActiveDrawerTab('tasks')}
-                    className="text-xs font-medium text-[#0071e3] hover:underline"
+                    className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
                   >
-                    Manage Tasks →
+                    Manage tasks
                   </button>
                 </div>
                 {voterTasks.length === 0 ? (
-                  <p className="text-xs text-slate-500">No open field tasks for this voter. Assigned Worker: {assignedWorker?.name || 'Unassigned'}.</p>
+                  <p className="text-xs text-slate-500 dark:text-zinc-400">
+                    No open tasks for this voter. Assigned worker {assignedWorker?.name || 'Unassigned'}.
+                  </p>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="divide-y divide-slate-100 dark:divide-zinc-800/80">
                     {voterTasks.map((t) => (
-                      <div key={t.id} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+                      <div key={t.id} className="flex items-center justify-between py-2.5 first:pt-0 last:pb-0 text-xs">
                         <div>
-                          <p className="font-medium text-slate-800">{t.title}</p>
-                          <p className="text-[11px] text-slate-500">Due: {t.dueDate} · Priority: {t.priority}</p>
+                          <p className="font-medium text-slate-900 dark:text-zinc-100">{t.title}</p>
+                          <p className="text-xs text-slate-500 dark:text-zinc-400 tabular-nums">Due {t.dueDate} · {t.priority}</p>
                         </div>
                         <span
-                          className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                          className={`text-xs font-medium ${
                             t.status === 'Overdue'
-                              ? 'bg-red-100 text-red-700'
+                              ? 'text-red-700 dark:text-red-400'
                               : t.status === 'Scheduled'
-                              ? 'bg-blue-100 text-blue-700'
+                              ? 'text-blue-700 dark:text-blue-400'
                               : t.status === 'Completed'
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : 'bg-amber-100 text-amber-700'
+                              ? 'text-emerald-700 dark:text-emerald-400'
+                              : 'text-amber-700 dark:text-amber-400'
                           }`}
                         >
                           {t.status}
@@ -936,51 +955,51 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
           {/* TAB 2: FAMILY MEMBERS */}
           {activeDrawerTab === 'family' && (
             <div className="space-y-4">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 flex items-center justify-between">
+              <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/50 p-4 flex items-center justify-between gap-3">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900">
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
                     Household {family?.familyCode || voter.familyId}
                   </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Head of Family: <span className="font-semibold text-slate-800">{family?.headName}</span> · {family?.address}
+                  <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+                    Head <span className="font-medium text-slate-800 dark:text-zinc-200">{family?.headName || 'Pending'}</span> · {family?.address}
                   </p>
                 </div>
-                <span className="rounded-full bg-white border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-800">
+                <span className="text-xs font-medium text-slate-700 dark:text-zinc-300 whitespace-nowrap">
                   {family?.statusRollup}
                 </span>
               </div>
 
-              <div className="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white">
+              <div className="divide-y divide-slate-100 dark:divide-zinc-800 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
                 {familyMembers.map((member) => (
                   <div
                     key={member.id}
-                    className={`flex items-center justify-between p-3.5 hover:bg-slate-50 transition-colors ${
-                      member.id === voter.id ? 'bg-blue-50/40' : ''
+                    className={`flex items-center justify-between p-3.5 transition-colors ${
+                      member.id === voter.id ? 'bg-blue-50/40 dark:bg-blue-950/20' : 'hover:bg-slate-50/60 dark:hover:bg-zinc-800/40'
                     }`}
                   >
-                    <div className="space-y-0.5">
+                    <div className="space-y-0.5 min-w-0 pr-3">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-slate-900">{member.name}</span>
-                        <span className="text-xs text-slate-500">({member.relationToHead || 'Member'})</span>
+                        <span className="text-sm font-medium text-slate-900 dark:text-zinc-100 truncate">{member.name}</span>
+                        <span className="text-xs text-slate-500 dark:text-zinc-400">{member.relationToHead || 'Member'}</span>
                         {member.id === voter.id && (
-                          <span className="text-[10px] font-semibold uppercase bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded">
-                            Current
+                          <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
+                            · Current
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-slate-500 font-mono">
-                        {member.epicNo} · Age {member.age} · {member.gender} · Father: {member.fatherName}
+                      <p className="text-xs text-slate-500 dark:text-zinc-400 font-mono truncate tabular-nums">
+                        {member.epicNo} · {Number.isFinite(member.age) ? member.age : '-'} · {member.gender} · {member.fatherName}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${statusColorMap[member.status]}`}>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className={`text-xs font-medium ${statusTextClass[member.status]}`}>
                         {member.status}
                       </span>
                       {member.id !== voter.id && (
                         <button
                           type="button"
                           onClick={() => setSelectedVoterId(member.id)}
-                          className="px-2.5 py-1 rounded-lg border border-slate-200 text-xs font-medium text-[#0071e3] hover:bg-slate-100"
+                          className="px-2.5 py-1 rounded-lg border border-slate-200 dark:border-zinc-700 text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-slate-100 dark:hover:bg-zinc-800 whitespace-nowrap"
                         >
                           Open
                         </button>
@@ -995,33 +1014,33 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
           {/* TAB: INDIVIDUAL VOTER NOTIFICATION */}
           {activeDrawerTab === 'notify' && (
             <div className="space-y-4">
-              <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-3.5 text-xs">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-bold text-slate-900 flex items-center gap-1.5">
-                    <BellRing className="h-4 w-4 text-[#0071e3]" />
-                    <span>Send Individual Notification to {voter.name}</span>
+              <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/50 p-4 space-y-3.5 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="font-semibold text-slate-900 dark:text-zinc-100 flex items-center gap-1.5">
+                    <BellRing className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                    <span>Send notification to {voter.name}</span>
                   </h4>
-                  <span className="font-mono text-slate-500">
+                  <span className="font-mono text-slate-500 dark:text-zinc-400">
                     {maskPhoneNumber(voter.phone, revealFullPhone)}
                   </span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block font-medium text-slate-700 mb-1">Delivery Channel</label>
+                    <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">Delivery channel</label>
                     <select
                       value={drawerNotifChannel}
                       onChange={(e) => setDrawerNotifChannel(e.target.value as NotificationChannel)}
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900"
+                      className={inputClass}
                     >
                       <option value="WhatsApp">WhatsApp</option>
-                      <option value="SMS">SMS Text</option>
-                      <option value="Voice Call">Voice Call Alert</option>
-                      <option value="Field Slip">Doorstep Field Slip</option>
+                      <option value="SMS">SMS text</option>
+                      <option value="Voice Call">Voice call alert</option>
+                      <option value="Field Slip">Doorstep field slip</option>
                     </select>
                   </div>
                   <div>
-                    <label className="block font-medium text-slate-700 mb-1">Template Preset</label>
+                    <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">Template preset</label>
                     <select
                       value={drawerNotifTemplate}
                       onChange={(e) => {
@@ -1031,33 +1050,33 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
                         setDrawerNotifSubject(generated.subject);
                         setDrawerNotifMessage(generated.message);
                       }}
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900"
+                      className={inputClass}
                     >
-                      <option value="Polling Slip">Polling Slip (EPIC + Booth + Serial No)</option>
-                      <option value="Verification Reminder">Verification Reminder</option>
-                      <option value="Booth Update">Booth Location Update</option>
-                      <option value="Custom Message">Custom Message</option>
+                      <option value="Polling Slip">Polling slip (EPIC, booth and serial no)</option>
+                      <option value="Verification Reminder">Verification reminder</option>
+                      <option value="Booth Update">Booth location update</option>
+                      <option value="Custom Message">Custom message</option>
                     </select>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block font-medium text-slate-700 mb-1">Subject</label>
+                  <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">Subject</label>
                   <input
                     type="text"
                     value={drawerNotifSubject}
                     onChange={(e) => setDrawerNotifSubject(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900"
+                    className={inputClass}
                   />
                 </div>
 
                 <div>
-                  <label className="block font-medium text-slate-700 mb-1">Personalized Message</label>
+                  <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">Message</label>
                   <textarea
                     rows={3}
                     value={drawerNotifMessage}
                     onChange={(e) => setDrawerNotifMessage(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 bg-white p-3 text-slate-900 leading-relaxed"
+                    className={`${inputClass} leading-relaxed`}
                   />
                 </div>
 
@@ -1074,38 +1093,36 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
                         message: drawerNotifMessage,
                       });
                     }}
-                    className="inline-flex items-center gap-1.5 rounded-full bg-[#0071e3] px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-40 whitespace-nowrap"
                   >
                     <Send className="h-3.5 w-3.5" />
-                    <span>Dispatch Notification</span>
+                    <span>Send notification</span>
                   </button>
                 </div>
               </div>
 
               <div className="space-y-2.5">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Sent Notifications ({voterNotifs.length})
+                <h4 className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                  Sent notifications <span className="text-slate-400 dark:text-zinc-500 font-normal tabular-nums">({voterNotifs.length})</span>
                 </h4>
                 {voterNotifs.length === 0 ? (
-                  <p className="text-center py-6 text-xs text-slate-500">
-                    No individual notifications have been sent to {voter.name} yet.
+                  <p className="text-center py-6 text-xs text-slate-500 dark:text-zinc-400">
+                    No notifications sent to {voter.name} yet.
                   </p>
                 ) : (
                   voterNotifs.map((n) => (
-                    <div key={n.id} className="rounded-xl border border-slate-200 bg-white p-3.5 space-y-1.5 text-xs">
+                    <div key={n.id} className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-3.5 space-y-1.5 text-xs">
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                          <span className="font-semibold text-slate-900">{n.subject}</span>
-                          <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-700">
-                            {n.channel}
-                          </span>
+                          <span className="font-semibold text-slate-900 dark:text-zinc-100">{n.subject}</span>
+                          <span className="text-slate-500 dark:text-zinc-400">· {n.channel}</span>
                         </div>
-                        <span className="inline-flex items-center rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                        <span className="text-xs font-medium text-emerald-700 dark:text-emerald-400">
                           {n.status}
                         </span>
                       </div>
-                      <p className="text-slate-700 leading-relaxed">{n.message}</p>
-                      <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+                      <p className="text-slate-700 dark:text-zinc-300 leading-relaxed">{n.message}</p>
+                      <div className="flex items-center justify-between text-xs text-slate-400 dark:text-zinc-500 pt-1">
                         <span>Sent by {n.sentByName}</span>
                         <div className="flex items-center gap-3">
                           <span className="tabular-nums">
@@ -1128,7 +1145,7 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
                                   message: n.message,
                                 })
                               }
-                              className="text-[#0071e3] font-semibold hover:underline"
+                              className="text-blue-600 dark:text-blue-400 font-medium hover:underline"
                             >
                               Resend
                             </button>
@@ -1145,41 +1162,43 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
           {/* TAB 3: NOTES */}
           {activeDrawerTab === 'notes' && (
             <div className="space-y-4">
-              <div className="rounded-xl border border-slate-200 p-4 space-y-3 bg-slate-50/50">
-                <label className="block text-xs font-semibold text-slate-800">
-                  Add Field Verification Note (Supports @Coordinator mentions)
+              <div className="rounded-xl border border-slate-200 dark:border-zinc-800 p-4 space-y-3 bg-slate-50/70 dark:bg-zinc-950/50">
+                <label className="block text-xs font-semibold text-slate-800 dark:text-zinc-200">
+                  Add field verification note
                 </label>
                 <textarea
                   rows={3}
+                  disabled={!canEditVoter}
                   value={newNoteText}
                   onChange={(e) => setNewNoteText(e.target.value)}
                   placeholder="Write verification findings, document reference, or @mention..."
-                  className="w-full rounded-xl border border-slate-300 bg-white p-3 text-xs text-slate-900 focus:border-[#0071e3] focus:outline-none"
+                  className={`${inputClass} p-3`}
                 />
                 <div className="flex justify-end">
                   <button
                     type="button"
+                    disabled={!canEditVoter || !newNoteText.trim()}
                     onClick={() => {
                       if (!newNoteText.trim()) return;
                       addNote(voter.id, newNoteText);
                       setNewNoteText('');
                     }}
-                    className="px-4 py-2 rounded-full bg-[#0071e3] text-white text-xs font-semibold hover:bg-blue-700"
+                    className="px-4 py-2 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-40 whitespace-nowrap"
                   >
-                    Post Note
+                    Post note
                   </button>
                 </div>
               </div>
 
               <div className="space-y-3">
                 {voterNotes.length === 0 ? (
-                  <p className="text-center py-8 text-xs text-slate-500">No field notes recorded for this voter yet.</p>
+                  <p className="text-center py-8 text-xs text-slate-500 dark:text-zinc-400">No field notes recorded for this voter yet.</p>
                 ) : (
                   voterNotes.map((n) => (
-                    <div key={n.id} className="rounded-xl border border-slate-200 bg-white p-4 space-y-1.5">
+                    <div key={n.id} className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-1.5">
                       <div className="flex items-center justify-between text-xs">
-                        <span className="font-semibold text-slate-900">{n.authorName}</span>
-                        <span className="text-slate-400 tabular-nums">
+                        <span className="font-semibold text-slate-900 dark:text-zinc-100">{n.authorName}</span>
+                        <span className="text-slate-400 dark:text-zinc-500 tabular-nums">
                           {new Date(n.createdAt).toLocaleString('en-IN', {
                             day: '2-digit',
                             month: 'short',
@@ -1188,7 +1207,7 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
                           })}
                         </span>
                       </div>
-                      <p className="text-xs text-slate-700 leading-relaxed">{n.content}</p>
+                      <p className="text-xs text-slate-700 dark:text-zinc-300 leading-relaxed">{n.content}</p>
                     </div>
                   ))
                 )}
@@ -1199,47 +1218,51 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
           {/* TAB 4: TASKS */}
           {activeDrawerTab === 'tasks' && (
             <div className="space-y-4">
-              <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-4 space-y-3">
-                <h4 className="text-xs font-bold text-slate-900">Create Task / Schedule Household Visit</h4>
+              <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/50 p-4 space-y-3">
+                <h4 className="text-xs font-semibold text-slate-900 dark:text-zinc-100">Create task or schedule household visit</h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                   <div className="sm:col-span-2">
-                    <label className="block text-slate-600 mb-1">Task Description</label>
+                    <label className="block text-slate-600 dark:text-zinc-400 mb-1">Task description</label>
                     <input
                       type="text"
+                      disabled={!canEditVoter}
                       value={newTaskTitle}
                       onChange={(e) => setNewTaskTitle(e.target.value)}
-                      placeholder="e.g., Verify EPIC card & collect Form-8 supporting proof"
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900"
+                      placeholder="Verify EPIC card and collect Form-8 supporting proof"
+                      className={inputClass}
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-600 mb-1">Task Type</label>
+                    <label className="block text-slate-600 dark:text-zinc-400 mb-1">Task type</label>
                     <select
+                      disabled={!canEditVoter}
                       value={newTaskType}
                       onChange={(e) => setNewTaskType(e.target.value as typeof newTaskType)}
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900"
+                      className={inputClass}
                     >
                       <option value="Verification">Verification</option>
-                      <option value="Issue Resolution">Issue Resolution</option>
-                      <option value="Meeting">Schedule Meeting</option>
+                      <option value="Issue Resolution">Issue resolution</option>
+                      <option value="Meeting">Schedule meeting</option>
                       <option value="Follow-up">Follow-up</option>
                     </select>
                   </div>
                   <div>
-                    <label className="block text-slate-600 mb-1">Due Date</label>
+                    <label className="block text-slate-600 dark:text-zinc-400 mb-1">Due date</label>
                     <input
                       type="date"
+                      disabled={!canEditVoter}
                       value={newTaskDueDate}
                       onChange={(e) => setNewTaskDueDate(e.target.value)}
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900"
+                      className={inputClass}
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-600 mb-1">Priority</label>
+                    <label className="block text-slate-600 dark:text-zinc-400 mb-1">Priority</label>
                     <select
+                      disabled={!canEditVoter}
                       value={newTaskPriority}
                       onChange={(e) => setNewTaskPriority(e.target.value as typeof newTaskPriority)}
-                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900"
+                      className={inputClass}
                     >
                       <option value="High">High</option>
                       <option value="Medium">Medium</option>
@@ -1249,6 +1272,7 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
                   <div className="flex items-end">
                     <button
                       type="button"
+                      disabled={!canEditVoter || !newTaskTitle.trim()}
                       onClick={() => {
                         if (!newTaskTitle.trim()) return;
                         addTask({
@@ -1264,31 +1288,34 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
                         });
                         setNewTaskTitle('');
                       }}
-                      className="w-full py-2 rounded-full bg-[#0071e3] text-white text-xs font-semibold hover:bg-blue-700"
+                      className="w-full py-2 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-40 whitespace-nowrap"
                     >
-                      Assign Task
+                      Assign task
                     </button>
                   </div>
                 </div>
               </div>
 
-              <div className="space-y-2.5">
-                {voterTasks.map((t) => (
-                  <div key={t.id} className="rounded-xl border border-slate-200 bg-white p-3.5 flex items-center justify-between gap-3">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-semibold text-slate-900">{t.title}</span>
-                        <span className="text-[11px] text-slate-500">({t.type})</span>
+              <div className="divide-y divide-slate-100 dark:divide-zinc-800 rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+                {voterTasks.length === 0 ? (
+                  <p className="text-center py-8 text-xs text-slate-500 dark:text-zinc-400">No tasks assigned for this voter.</p>
+                ) : (
+                  voterTasks.map((t) => (
+                    <div key={t.id} className="p-3.5 flex items-center justify-between gap-3">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-slate-900 dark:text-zinc-100">{t.title}</span>
+                          <span className="text-xs text-slate-500 dark:text-zinc-400">· {t.type}</span>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-zinc-400 tabular-nums">
+                          Due <span className="font-mono">{t.dueDate}</span> · {t.priority}
+                        </p>
                       </div>
-                      <p className="text-[11px] text-slate-500">
-                        Due: <span className="font-mono">{t.dueDate}</span> · Priority: {t.priority}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
                       <select
+                        disabled={!canEditVoter}
                         value={t.status}
                         onChange={(e) => updateTaskStatus(t.id, e.target.value as typeof t.status)}
-                        className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-800"
+                        className="rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2.5 py-1 text-xs font-medium text-slate-800 dark:text-zinc-200"
                       >
                         <option value="Pending">Pending</option>
                         <option value="Scheduled">Scheduled</option>
@@ -1296,8 +1323,8 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
                         <option value="Completed">Completed</option>
                       </select>
                     </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
           )}
@@ -1306,67 +1333,69 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
           {activeDrawerTab === 'history' && (
             <div className="space-y-5">
               {/* Log Visit Box */}
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2.5">
-                <h4 className="text-xs font-bold text-slate-900">Log On-Location Field Visit (Captures GPS)</h4>
+              <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/50 p-4 space-y-2.5">
+                <h4 className="text-xs font-semibold text-slate-900 dark:text-zinc-100">Log on-location field visit</h4>
                 <div className="flex gap-2">
                   <input
                     type="text"
+                    disabled={!canEditVoter}
                     value={newVisitOutcome}
                     onChange={(e) => setNewVisitOutcome(e.target.value)}
-                    placeholder="e.g., Met family head at residence, confirmed all members..."
-                    className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-900"
+                    placeholder="Met family head at residence, confirmed all members..."
+                    className={inputClass}
                   />
                   <button
                     type="button"
+                    disabled={!canEditVoter || !newVisitOutcome.trim()}
                     onClick={() => {
                       if (!newVisitOutcome.trim()) return;
                       addVisit(voter.id, newVisitOutcome.trim());
                       setNewVisitOutcome('');
                     }}
-                    className="px-3.5 py-1.5 rounded-full bg-[#0071e3] text-white text-xs font-semibold hover:bg-blue-700 whitespace-nowrap"
+                    className="px-3.5 py-2 rounded-lg bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-40 whitespace-nowrap shrink-0"
                   >
-                    Log Visit
+                    Log visit
                   </button>
                 </div>
               </div>
 
               <div className="space-y-3">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Immutable Change & Visit Timeline
+                <h4 className="text-xs font-semibold text-slate-700 dark:text-zinc-300">
+                  Change and visit timeline
                 </h4>
                 {voterAuditLogs.length === 0 && voterVisits.length === 0 ? (
-                  <p className="text-xs text-slate-500 py-4">No field edits recorded since initial electoral roll import.</p>
+                  <p className="text-xs text-slate-500 dark:text-zinc-400 py-4">No field edits recorded since initial electoral roll import.</p>
                 ) : (
                   <div className="space-y-2.5">
                     {voterAuditLogs.map((log) => (
-                      <div key={log.id} className="rounded-xl border border-slate-200 bg-white p-3.5 text-xs space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold text-slate-900">
-                            {log.userName} <span className="font-normal text-slate-500">({log.action})</span>
+                      <div key={log.id} className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-3.5 text-xs space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium text-slate-900 dark:text-zinc-100">
+                            {log.userName} <span className="font-normal text-slate-500 dark:text-zinc-400">· {log.action}</span>
                           </span>
-                          <span className="text-[11px] text-slate-400 tabular-nums">
+                          <span className="text-xs text-slate-400 dark:text-zinc-500 tabular-nums">
                             {new Date(log.createdAt).toLocaleString('en-IN')}
                           </span>
                         </div>
-                        <p className="text-slate-600">
-                          Field <span className="font-mono font-medium text-slate-800">{log.field}</span>:{' '}
-                          <span className="line-through text-slate-400">{log.oldValue || 'empty'}</span> →{' '}
-                          <span className="font-semibold text-emerald-700">{log.newValue}</span>
+                        <p className="text-slate-600 dark:text-zinc-300">
+                          Field <span className="font-mono font-medium text-slate-800 dark:text-zinc-200">{log.field}</span> changed from{' '}
+                          <span className="line-through text-slate-400 dark:text-zinc-500">{log.oldValue || 'empty'}</span> to{' '}
+                          <span className="font-medium text-emerald-700 dark:text-emerald-400">{log.newValue}</span>
                         </p>
-                        {log.gps && <p className="text-[11px] font-mono text-slate-400">GPS: {log.gps}</p>}
+                        {log.gps && <p className="text-xs font-mono text-slate-400 dark:text-zinc-500">GPS {log.gps}</p>}
                       </div>
                     ))}
                     {voterVisits.map((v) => (
-                      <div key={v.id} className="rounded-xl border border-blue-200 bg-blue-50/30 p-3.5 text-xs space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold text-blue-900">Field Visit Logged</span>
-                          <span className="text-[11px] text-slate-400 tabular-nums">
+                      <div key={v.id} className="rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/40 dark:bg-blue-950/20 p-3.5 text-xs space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold text-blue-900 dark:text-blue-300">Field visit logged</span>
+                          <span className="text-xs text-slate-400 dark:text-zinc-500 tabular-nums">
                             {new Date(v.createdAt).toLocaleString('en-IN')}
                           </span>
                         </div>
-                        <p className="text-slate-700">{v.outcome}</p>
-                        <p className="text-[11px] font-mono text-slate-500">
-                          GPS Pin: {v.lat}, {v.lng}
+                        <p className="text-slate-700 dark:text-zinc-300">{v.outcome}</p>
+                        <p className="text-xs font-mono text-slate-500 dark:text-zinc-400 tabular-nums">
+                          GPS {Number.isFinite(v.lat) ? v.lat : '-'}, {Number.isFinite(v.lng) ? v.lng : '-'}
                         </p>
                       </div>
                     ))}
@@ -1378,25 +1407,25 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
 
           {/* Soft Delete Confirmation Modal inside Drawer */}
           {showDeleteModal && (
-            <div className="rounded-xl border border-red-300 bg-red-50 p-4 space-y-3">
+            <div className="rounded-xl border border-red-200 dark:border-red-900/60 bg-red-50/70 dark:bg-red-950/30 p-4 space-y-3">
               <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-red-900 flex items-center gap-1.5">
-                  <Trash2 className="h-4 w-4 text-red-600" />
-                  Soft-Delete Voter Record (Requires Audit Reason)
+                <h4 className="text-xs font-semibold text-red-900 dark:text-red-300 flex items-center gap-1.5">
+                  <Trash2 className="h-4 w-4 text-red-600 dark:text-red-400" />
+                  Soft-delete voter record
                 </h4>
-                <button type="button" onClick={() => setShowDeleteModal(false)} className="text-xs text-slate-500">
+                <button type="button" onClick={() => setShowDeleteModal(false)} className="text-xs text-slate-500 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-200">
                   Cancel
                 </button>
               </div>
-              <p className="text-xs text-red-800">
-                Records are never permanently destroyed. Soft-deleting archives this voter and logs an immutable audit event.
+              <p className="text-xs text-red-800 dark:text-red-300/90">
+                Records are archived rather than permanently destroyed. An audit entry will be recorded.
               </p>
               <input
                 type="text"
                 value={deleteReason}
                 onChange={(e) => setDeleteReason(e.target.value)}
-                placeholder="Enter mandatory deletion reason (e.g. Duplicate EPIC entry, Form-7 deletion)..."
-                className="w-full rounded-lg border border-red-300 bg-white px-3 py-2 text-xs text-slate-900"
+                placeholder="Enter deletion reason (Duplicate EPIC, Form-7 deletion)..."
+                className={inputClass}
               />
               <div className="flex justify-end gap-2">
                 <button
@@ -1406,9 +1435,9 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
                     softDeleteVoter(voter.id, deleteReason.trim());
                     setShowDeleteModal(false);
                   }}
-                  className="px-4 py-1.5 rounded-full bg-[#ff3b30] text-white text-xs font-semibold hover:bg-red-700 disabled:opacity-40"
+                  className="px-4 py-1.5 rounded-lg bg-red-600 text-white text-xs font-medium hover:bg-red-700 disabled:opacity-40 whitespace-nowrap"
                 >
-                  Confirm Soft Delete
+                  Confirm soft delete
                 </button>
               </div>
             </div>
@@ -1416,16 +1445,16 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
         </div>
 
         {/* Drawer Footer */}
-        <div className="border-t border-slate-200 bg-slate-50 px-6 py-3.5 flex items-center justify-between gap-3">
+        <div className="border-t border-slate-200 dark:border-zinc-800 bg-slate-50/80 dark:bg-zinc-950/60 px-6 py-3.5 flex items-center justify-between gap-3">
           <div>
             {canDeleteVoter && (
               <button
                 type="button"
                 onClick={() => setShowDeleteModal(true)}
-                className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-xs font-semibold text-[#ff3b30] hover:bg-red-50 transition-colors"
+                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors whitespace-nowrap"
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                Delete Record
+                Delete record
               </button>
             )}
           </div>
@@ -1433,7 +1462,7 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
             <button
               type="button"
               onClick={handleCloseAttempt}
-              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+              className="rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-2 text-xs font-medium text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 whitespace-nowrap"
             >
               Close
             </button>
@@ -1441,9 +1470,9 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
               <button
                 type="button"
                 onClick={handleSaveChanges}
-                className="rounded-full bg-[#0071e3] px-5 py-2 text-xs font-semibold text-white hover:bg-blue-700 shadow-xs"
+                className="rounded-lg bg-blue-600 px-5 py-2 text-xs font-medium text-white hover:bg-blue-700 whitespace-nowrap"
               >
-                Save Changes
+                Save changes
               </button>
             )}
           </div>

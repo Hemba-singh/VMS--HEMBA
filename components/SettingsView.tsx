@@ -2,7 +2,6 @@
 
 import React, { useState } from 'react';
 import {
-  Settings,
   ShieldCheck,
   Tag,
   Database,
@@ -38,40 +37,41 @@ export default function SettingsView() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-bold tracking-tight text-slate-900">
-            System Settings, Part-Number Mapping & Privacy Compliance
-          </h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Configure roll part mappings, tags, status/issue taxonomy, DPDP 2023 privacy rules, and Firestore cloud synchronization.
-          </p>
-        </div>
+      {/* Page Header */}
+      <div className="border-b border-slate-200 dark:border-zinc-800 pb-4">
+        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-slate-900 dark:text-zinc-50">
+          System settings
+        </h1>
+        <p className="text-xs text-slate-500 dark:text-zinc-400 mt-1">
+          Configure privacy defaults, database synchronization, voter tags, archived records, and part-number mapping.
+        </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Card 1: Security, Privacy & DPDP 2023 Compliance */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
-          <div className="flex items-center gap-2">
-            <Lock className="h-4 w-4 text-[#0071e3]" />
-            <h3 className="text-sm font-bold text-slate-900">Security, Privacy & Electoral Compliance</h3>
+        {/* Card 1: Privacy & Compliance */}
+        <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-4">
+          <div className="flex items-center gap-2 border-b border-slate-100 dark:border-zinc-800 pb-3">
+            <Lock className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
+              Privacy and session controls
+            </h2>
           </div>
 
-          <div className="space-y-3 text-xs">
-            <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+          <div className="divide-y divide-slate-100 dark:divide-zinc-800 text-xs">
+            <div className="py-3 flex items-center justify-between gap-4">
               <div>
-                <div className="font-semibold text-slate-900">Unmask Voter Phone Numbers</div>
-                <p className="text-[11px] text-slate-500">
-                  Default masks phone numbers as 98XXXXXX21 unless permitted by Admin/Coordinator role.
+                <div className="font-medium text-slate-900 dark:text-zinc-100">Unmask phone numbers</div>
+                <p className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5">
+                  Phone numbers remain masked unless explicitly toggled by an authorized role.
                 </p>
               </div>
               <button
                 type="button"
                 disabled={currentUser.role === 'Viewer'}
                 onClick={() => setRevealFullPhone(!revealFullPhone)}
+                aria-label="Toggle phone visibility"
                 className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
-                  revealFullPhone ? 'bg-[#0071e3]' : 'bg-slate-300'
+                  revealFullPhone ? 'bg-blue-600' : 'bg-slate-300 dark:bg-zinc-700'
                 }`}
               >
                 <span
@@ -82,49 +82,56 @@ export default function SettingsView() {
               </button>
             </div>
 
-            <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+            <div className="py-3 flex items-center justify-between gap-4">
               <div>
-                <div className="font-semibold text-slate-900">Idle Session Auto-Timeout</div>
-                <p className="text-[11px] text-slate-500">Automatically locks field and coordinator sessions after inactivity.</p>
+                <div className="font-medium text-slate-900 dark:text-zinc-100">Idle session timeout</div>
+                <p className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5">
+                  Lock session automatically after periods of inactivity.
+                </p>
               </div>
               <select
                 value={sessionTimeoutMins}
-                onChange={(e) => setSessionTimeoutMins(Number(e.target.value))}
-                className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 font-semibold text-slate-800"
+                onChange={(e) => {
+                  const next = Number(e.target.value);
+                  if (Number.isFinite(next) && next > 0) setSessionTimeoutMins(next);
+                }}
+                className="rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-2.5 py-1.5 font-medium text-slate-800 dark:text-zinc-200"
               >
-                <option value={15}>15 Minutes</option>
-                <option value={30}>30 Minutes</option>
-                <option value={60}>60 Minutes</option>
+                <option value={15}>15 minutes</option>
+                <option value={30}>30 minutes</option>
+                <option value={60}>60 minutes</option>
               </select>
             </div>
 
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3.5 space-y-1">
-              <div className="flex items-center gap-1.5 font-bold text-emerald-900">
-                <ShieldCheck className="h-4 w-4 text-emerald-600" />
-                Strict Data Minimization Policy Active
+            <div className="pt-3 flex items-start gap-2.5">
+              <ShieldCheck className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+              <div className="space-y-0.5">
+                <div className="font-medium text-slate-900 dark:text-zinc-100">Data minimization active</div>
+                <p className="text-[11px] text-slate-500 dark:text-zinc-400 leading-relaxed">
+                  Following Election Commission and DPDP Act 2023 rules, caste, religion, and political affiliation fields are excluded.
+                </p>
               </div>
-              <p className="text-[11px] text-emerald-800 leading-relaxed">
-                Per Election Commission guidelines and DPDP Act 2023, this system strictly prohibits collecting or storing caste, religion, or political leaning fields.
-              </p>
             </div>
           </div>
         </div>
 
-        {/* Card 2: Role-Scoped Authentication & Firestore Cloud Database */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
-          <div className="flex items-center justify-between">
+        {/* Card 2: Session & Firestore Sync */}
+        <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 dark:border-zinc-800 pb-3">
             <div className="flex items-center gap-2">
-              <Database className="h-4 w-4 text-[#0071e3]" />
-              <h3 className="text-sm font-bold text-slate-900">Email + Security PIN Auth &amp; Database Sync</h3>
+              <Database className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
+                Authentication and database sync
+              </h2>
             </div>
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700">
-              <CheckCircle2 className="h-3 w-3" />
-              {isConnectedToFirestore ? 'Firestore Connected' : 'Local Seed Fallback Active'}
+            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              <span>{isConnectedToFirestore ? 'Firestore connected' : 'Local storage active'}</span>
             </span>
           </div>
 
-          <p className="text-xs text-slate-600 leading-relaxed">
-            Authenticated via Official Email (<span className="font-mono font-semibold">{currentUser.email}</span>) and 4-Digit Security PIN as <span className="font-semibold">{currentUser.role}</span> across 41 CEO Manipur Polling Stations (PS 1–41).
+          <p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed">
+            Signed in as <span className="font-mono font-medium text-slate-900 dark:text-zinc-100">{currentUser.email}</span> ({currentUser.role}) across 41 polling stations.
           </p>
 
           <div className="flex flex-wrap items-center gap-2.5 pt-1">
@@ -132,44 +139,42 @@ export default function SettingsView() {
               type="button"
               disabled={isSyncingFirestore}
               onClick={syncSeedDataToFirestore}
-              className="rounded-full bg-[#0071e3] px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
-              {isSyncingFirestore ? 'Syncing Master Data...' : 'Sync Master Hierarchy to Firestore'}
+              {isSyncingFirestore ? 'Syncing data...' : 'Sync hierarchy to Firestore'}
             </button>
             <button
               type="button"
               onClick={lockSession}
-              className="rounded-full border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              className="rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-4 py-2 text-xs font-medium text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800"
             >
-              Sign Out ({currentUser.email})
+              Sign out
             </button>
           </div>
         </div>
 
-        {/* Card 3: Tags, Status Workflow & Issue Types */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
-          <div className="flex items-center gap-2">
-            <Tag className="h-4 w-4 text-[#0071e3]" />
-            <h3 className="text-sm font-bold text-slate-900">Voter Tags, Status Workflow & Issue Taxonomy</h3>
+        {/* Card 3: Voter Tags & Issue Taxonomy */}
+        <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-4">
+          <div className="flex items-center gap-2 border-b border-slate-100 dark:border-zinc-800 pb-3">
+            <Tag className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
+              Voter tags and issue types
+            </h2>
           </div>
 
-          <div className="space-y-3 text-xs">
+          <div className="space-y-4 text-xs">
             <div>
-              <label className="block font-semibold text-slate-700 mb-1.5">Available Household & Voter Tags</label>
-              <div className="flex flex-wrap gap-1.5 mb-2.5">
-                {availableTags.map((t) => (
-                  <span key={t} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 font-medium text-slate-700">
-                    {t}
-                  </span>
-                ))}
+              <div className="font-medium text-slate-700 dark:text-zinc-300 mb-2">Available tags</div>
+              <div className="text-slate-600 dark:text-zinc-400 leading-relaxed mb-3">
+                {availableTags.join(' · ')}
               </div>
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={newTagInput}
                   onChange={(e) => setNewTagInput(e.target.value)}
-                  placeholder="Add new tag (e.g., Postal Ballot Eligible)..."
-                  className="flex-1 rounded-xl border border-slate-300 px-3 py-1.5 text-slate-900"
+                  placeholder="New tag (e.g., Postal Ballot Eligible)..."
+                  className="flex-1 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3 py-2 text-slate-900 dark:text-zinc-100 focus:border-blue-600 focus:outline-none"
                 />
                 <button
                   type="button"
@@ -178,53 +183,53 @@ export default function SettingsView() {
                     addCustomTag(newTagInput.trim());
                     setNewTagInput('');
                   }}
-                  className="inline-flex items-center gap-1 rounded-full bg-[#0071e3] px-4 py-1.5 font-semibold text-white"
+                  className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3.5 py-2 font-medium text-white hover:bg-blue-700 whitespace-nowrap"
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  Add Tag
+                  <span>Add tag</span>
                 </button>
               </div>
             </div>
 
-            <div className="pt-2 border-t border-slate-100">
-              <label className="block font-semibold text-slate-700 mb-1">Mandatory Issue Classifications</label>
-              <p className="text-slate-600">{issueTypes.join(' · ')}</p>
+            <div className="pt-3 border-t border-slate-100 dark:border-zinc-800">
+              <div className="font-medium text-slate-700 dark:text-zinc-300 mb-1">Issue classifications</div>
+              <p className="text-slate-600 dark:text-zinc-400">{issueTypes.join(' · ')}</p>
             </div>
           </div>
         </div>
 
-        {/* Card 4: Soft-Deleted Records Archive (Super Admin Restore) */}
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
-          <div className="flex items-center justify-between">
+        {/* Card 4: Soft-Deleted Archive */}
+        <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 dark:border-zinc-800 pb-3">
             <div className="flex items-center gap-2">
-              <RotateCcw className="h-4 w-4 text-[#0071e3]" />
-              <h3 className="text-sm font-bold text-slate-900">
-                Soft-Deleted Voter Archive ({softDeletedVoters.length})
-              </h3>
+              <RotateCcw className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+              <h2 className="text-sm font-semibold text-slate-900 dark:text-zinc-100 tabular-nums">
+                Deleted voter archive ({softDeletedVoters.length})
+              </h2>
             </div>
-            <span className="text-[11px] text-slate-400">Super Admin Restorable</span>
+            <span className="text-[11px] text-slate-400 dark:text-zinc-500">Super Admin restorable</span>
           </div>
 
           {softDeletedVoters.length === 0 ? (
-            <p className="text-xs text-slate-500 py-4">
-              No voter records have been soft-deleted. Deleting a voter from the Voter Details Drawer moves it here with an audit reason.
+            <p className="text-xs text-slate-500 dark:text-zinc-400 py-4">
+              No soft-deleted records. Archived voters appear here with their deletion audit reason.
             </p>
           ) : (
-            <div className="divide-y divide-slate-100 text-xs">
+            <div className="divide-y divide-slate-100 dark:divide-zinc-800 text-xs">
               {softDeletedVoters.map((v) => (
                 <div key={v.id} className="py-2.5 flex items-center justify-between gap-2">
                   <div>
-                    <span className="font-semibold text-slate-900">{v.name}</span>{' '}
-                    <span className="font-mono text-slate-500">({v.epicNo})</span>
-                    <p className="text-[11px] text-red-600">Reason: {v.deleteReason}</p>
+                    <span className="font-semibold text-slate-900 dark:text-zinc-100">{v.name}</span>{' '}
+                    <span className="font-mono text-slate-500 dark:text-zinc-400">({v.epicNo})</span>
+                    <p className="text-[11px] text-red-600 dark:text-red-400 mt-0.5">Reason: {v.deleteReason}</p>
                   </div>
                   {currentUser.role === 'Super Admin' && (
                     <button
                       type="button"
                       onClick={() => restoreVoter(v.id)}
-                      className="rounded-full bg-emerald-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700"
+                      className="rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-medium text-white hover:bg-emerald-700 whitespace-nowrap"
                     >
-                      Restore Record
+                      Restore
                     </button>
                   )}
                 </div>
@@ -234,26 +239,29 @@ export default function SettingsView() {
         </div>
       </div>
 
-      {/* Part-Number to Polling Station Quick Reference Table */}
-      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-        <div className="p-4 border-b border-slate-200">
-          <h3 className="text-sm font-bold text-slate-900">
-            Electoral Roll Part Number (1–41) → Polling Station Mapping Table
-          </h3>
-          <p className="text-xs text-slate-500">
-            Used by the Import Pipeline to automatically allocate imported voters to their Village Part and Polling Station.
+      {/* Part Number Quick Reference Table */}
+      <div className="rounded-xl border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden">
+        <div className="p-4 border-b border-slate-200 dark:border-zinc-800">
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
+            Part number to polling station reference ({villageParts.length} parts)
+          </h2>
+          <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+            Used during CSV imports to map incoming voters to their village part and polling station.
           </p>
         </div>
         <div className="p-4 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2.5 text-xs">
           {villageParts.map((vp) => {
             const ps = pollingStations.find((p) => p.id === vp.pollingStationId);
             return (
-              <div key={vp.id} className="rounded-xl border border-slate-200 bg-slate-50/70 p-2.5">
-                <div className="flex items-center justify-between font-mono font-bold text-slate-900">
-                  <span>Part {vp.partNo}</span>
-                  <span className="text-[#0071e3]">→ PS-{ps?.psNo}</span>
+              <div
+                key={vp.id}
+                className="rounded-lg border border-slate-200 dark:border-zinc-800 bg-slate-50/60 dark:bg-zinc-950/60 p-2.5"
+              >
+                <div className="flex items-center justify-between font-mono font-semibold text-slate-900 dark:text-zinc-100 tabular-nums">
+                  <span>Part {Number.isFinite(vp.partNo) ? vp.partNo : '-'}</span>
+                  <span className="text-blue-600 dark:text-blue-400">PS-{Number.isFinite(ps?.psNo) ? ps?.psNo : '-'}</span>
                 </div>
-                <div className="text-[11px] text-slate-600 truncate mt-1" title={vp.name}>
+                <div className="text-[11px] text-slate-600 dark:text-zinc-400 truncate mt-1" title={vp.name}>
                   {vp.name}
                 </div>
               </div>

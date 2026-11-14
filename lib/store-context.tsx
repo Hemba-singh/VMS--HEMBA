@@ -1127,6 +1127,27 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (!target) return prev;
         const now = new Date().toISOString();
         const syncedChanges: Partial<Voter> = { ...changes };
+        if (syncedChanges.age !== undefined) {
+          syncedChanges.age = Number.isFinite(Number(syncedChanges.age))
+            ? Math.max(18, Math.round(Number(syncedChanges.age)))
+            : target.age;
+        }
+        if (syncedChanges.partNo !== undefined) {
+          syncedChanges.partNo = Number.isFinite(Number(syncedChanges.partNo))
+            ? Math.round(Number(syncedChanges.partNo))
+            : target.partNo;
+        }
+        if (syncedChanges.serialNo !== undefined) {
+          syncedChanges.serialNo = Number.isFinite(Number(syncedChanges.serialNo))
+            ? Math.round(Number(syncedChanges.serialNo))
+            : target.serialNo;
+        }
+        if (syncedChanges.lat !== undefined && !Number.isFinite(Number(syncedChanges.lat))) {
+          syncedChanges.lat = target.lat ?? 24.6382;
+        }
+        if (syncedChanges.lng !== undefined && !Number.isFinite(Number(syncedChanges.lng))) {
+          syncedChanges.lng = target.lng ?? 94.0012;
+        }
         if (changes.category && !changes.colorState) {
           syncedChanges.colorState = categoryToColorStateLabel(changes.category);
         } else if (changes.colorState && !changes.category) {
@@ -1191,6 +1212,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const resolvedColorState = newVoterData.colorState || categoryToColorStateLabel(resolvedCategory);
       const newVoter: Voter = {
         ...newVoterData,
+        age: Number.isFinite(Number(newVoterData.age)) ? Math.max(18, Math.round(Number(newVoterData.age))) : 18,
+        partNo: Number.isFinite(Number(newVoterData.partNo)) ? Math.round(Number(newVoterData.partNo)) : 1,
+        serialNo: Number.isFinite(Number(newVoterData.serialNo)) ? Math.round(Number(newVoterData.serialNo)) : nextNum,
+        lat: Number.isFinite(Number(newVoterData.lat)) ? Number(newVoterData.lat) : undefined,
+        lng: Number.isFinite(Number(newVoterData.lng)) ? Number(newVoterData.lng) : undefined,
         category: resolvedCategory,
         colorState: resolvedColorState,
         id: `vot-${String(nextNum).padStart(4, '0')}`,
@@ -1413,13 +1439,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
       const voter = allVoters.find((v) => v.id === voterId);
       if (!voter || !scopedPsIdSet.has(voter.pollingStationId)) return;
+      const safeVisitLat = Number.isFinite(Number(lat)) ? Number(lat) : (Number.isFinite(Number(voter.lat)) ? Number(voter.lat) : 24.6382);
+      const safeVisitLng = Number.isFinite(Number(lng)) ? Number(lng) : (Number.isFinite(Number(voter.lng)) ? Number(voter.lng) : 94.0012);
       const newVisit: VoterVisit = {
         id: `vis-${Date.now()}`,
         voterId,
         pollingStationId: voter.pollingStationId,
         outcome,
-        lat: lat ?? voter.lat ?? 24.6382,
-        lng: lng ?? voter.lng ?? 94.0012,
+        lat: safeVisitLat,
+        lng: safeVisitLng,
         createdBy: currentUser.id,
         createdAt: new Date().toISOString(),
       };
@@ -1816,6 +1844,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const cat = normalizeVoterCategory(v.category || v.colorState);
         return {
           ...v,
+          age: Number.isFinite(Number(v.age)) ? Math.max(18, Math.round(Number(v.age))) : 18,
+          partNo: Number.isFinite(Number(v.partNo)) ? Math.round(Number(v.partNo)) : 1,
+          serialNo: Number.isFinite(Number(v.serialNo)) ? Math.round(Number(v.serialNo)) : idx + 1,
           category: cat,
           colorState: v.colorState || categoryToColorStateLabel(cat),
           id: `vot-imp-${Date.now().toString().slice(-4)}-${idx + 1}`,
@@ -1860,6 +1891,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (unassigned.length > 0) {
         const newUnassigned: UnassignedImportRecord[] = unassigned.map((u, i) => ({
           ...u,
+          age: Number.isFinite(Number(u.age)) ? Math.max(18, Math.round(Number(u.age))) : 18,
+          rawPartNo: Number.isFinite(Number(u.rawPartNo)) ? Math.round(Number(u.rawPartNo)) : 0,
           id: `unass-${Date.now()}-${i}`,
           batchId,
         }));
@@ -1916,13 +1949,28 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const vp = villageParts.find((p) => p.id === villagePartId);
       if (!rec || !vp) return;
 
-      const fam = families.find((f) => f.villagePartId === vp.id);
-      const targetFamilyId = fam ? fam.id : `fam-part-${vp.partNo}-${Date.now().toString().slice(-4)}`;
+      const fam = rec.houseNo
+        ? families.find(
+            (f) => f.villagePartId === vp.id && f.address.toLowerCase().includes(rec.houseNo!.toLowerCase())
+          )
+        : families.find((f) => f.villagePartId === vp.id);
+      const houseSlug = rec.houseNo ? rec.houseNo.toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+      const targetFamilyId = fam
+        ? fam.id
+        : houseSlug
+        ? `fam-${vp.partNo}-${houseSlug}`
+        : `fam-part-${vp.partNo}-${Date.now().toString().slice(-4)}`;
+      const formattedAddress =
+        rec.houseNo && !rec.rawAddress.toLowerCase().includes(rec.houseNo.toLowerCase())
+          ? `${rec.houseNo}, ${rec.rawAddress}, ${vp.name}`
+          : `${rec.rawAddress}, ${vp.name}`;
       createVoter({
         epicNo: rec.epicNo,
         name: rec.name,
         fatherName: rec.fatherName,
         motherName: rec.motherName,
+        spouseName: rec.spouseName || undefined,
+        houseNo: rec.houseNo || undefined,
         age: rec.age,
         gender: rec.gender,
         phone: '9862000000',
@@ -1932,7 +1980,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         villageId: vp.villageId,
         villagePartId: vp.id,
         pollingStationId: vp.pollingStationId,
-        addressId: `${rec.rawAddress}, ${vp.name}`,
+        addressId: formattedAddress,
         status: 'New',
         tags: ['Allocated from Queue'],
         assignedWorkerId: currentUser.id,

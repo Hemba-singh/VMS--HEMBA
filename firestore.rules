@@ -40,7 +40,7 @@ service cloud.firestore {
       data.keys().hasOnly([
         'epicNo', 'name', 'nameLocal', 'fatherName', 'motherName', 'spouseName',
         'age', 'gender', 'phone', 'familyId', 'partNo', 'serialNo',
-        'villageId', 'villagePartId', 'pollingStationId', 'addressId',
+        'villageId', 'villagePartId', 'pollingStationId', 'addressId', 'houseNo',
         'status', 'category', 'colorState', 'issueType', 'issueResolutionNote', 'tags', 'assignedWorkerId',
         'isDeleted', 'deleteReason', 'createdBy', 'createdAt', 'updatedAt'
       ]) &&
@@ -60,6 +60,7 @@ service cloud.firestore {
       data.villagePartId is string && data.villagePartId.size() <= 64 && data.villagePartId.matches('^[a-zA-Z0-9_\\-]+$') &&
       data.pollingStationId is string && data.pollingStationId.size() <= 64 && data.pollingStationId.matches('^[a-zA-Z0-9_\\-]+$') &&
       (!('addressId' in data) || (data.addressId is string && data.addressId.size() <= 200)) &&
+      (!('houseNo' in data) || (data.houseNo is string && data.houseNo.size() <= 64)) &&
       data.status is string && data.status in ['Verified', 'Pending', 'Issues', 'New', 'Removed'] &&
       (!('category' in data) || (data.category is string && data.category in ['Voter', 'Opponent', 'Pending', 'Worker'])) &&
       (!('colorState' in data) || (data.colorState is string && data.colorState in ['Our Voter', 'Opponent Voter', 'Pending Voter', 'Worker Voter'])) &&

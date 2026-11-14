@@ -21,6 +21,7 @@
         "villagePartId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "pollingStationId": { "type": "string", "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "addressId": { "type": "string", "maxLength": 200 },
+        "houseNo": { "type": "string", "maxLength": 64 },
         "status": { "type": "string", "enum": ["Verified", "Pending", "Issues", "New", "Removed"] },
         "category": { "type": "string", "enum": ["Voter", "Opponent", "Pending", "Worker"] },
         "colorState": { "type": "string", "enum": ["Our Voter", "Opponent Voter", "Pending Voter", "Worker Voter"] },
