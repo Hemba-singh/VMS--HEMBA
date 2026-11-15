@@ -246,7 +246,7 @@ export default function FamilyView() {
                             </span>
                           </div>
                           <div className="text-[11px] text-slate-500 dark:text-zinc-400 font-mono tabular-nums mt-0.5 truncate">
-                            {m.epicNo} · Age {Number.isFinite(m.age) ? m.age : '-'} ({m.gender}) · Father: {m.fatherName}
+                            {m.epicNo} · Age {Number.isFinite(m.age) ? m.age : '-'} ({m.gender}) · Father: {m.fatherName?.trim() || '-'}
                           </div>
                         </div>
 

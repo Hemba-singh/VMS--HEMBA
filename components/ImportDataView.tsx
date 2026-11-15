@@ -244,8 +244,8 @@ export default function ImportDataView() {
       if (!['M', 'F', 'O'].includes(r.gender)) {
         rowErrors.push(`Invalid gender value "${r.gender}" (allowed: M, F, O)`);
       }
-      if (!r.name.trim() || !r.fatherName.trim()) {
-        rowErrors.push('Missing required name or father name');
+      if (!r.name.trim()) {
+        rowErrors.push('Missing required voter name');
       }
 
       seenEpicsInBatch.add(r.epicNo);
@@ -419,8 +419,8 @@ export default function ImportDataView() {
       return {
         epicNo: v.row.epicNo,
         name: v.row.name,
-        fatherName: v.row.fatherName,
-        motherName: v.row.motherName,
+        fatherName: v.row.fatherName.trim(),
+        motherName: v.row.motherName.trim(),
         spouseName: v.row.spouseName.trim() || undefined,
         houseNo: trimmedHouseNo || undefined,
         age: v.row.age !== null && Number.isFinite(v.row.age) ? v.row.age : 18,
@@ -442,8 +442,8 @@ export default function ImportDataView() {
     const unassignedPayload = validationResult.unassigned.map((u) => ({
       epicNo: u.epicNo,
       name: u.name,
-      fatherName: u.fatherName,
-      motherName: u.motherName,
+      fatherName: u.fatherName.trim(),
+      motherName: u.motherName.trim(),
       spouseName: u.spouseName,
       houseNo: u.houseNo,
       age: u.age,
@@ -541,10 +541,10 @@ export default function ImportDataView() {
             <div className="px-4 py-3 border-b border-slate-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h3 className="text-xs font-semibold text-slate-900 dark:text-zinc-100">
-                  Required column headers (CSV &amp; Excel)
+                  Column headers (CSV &amp; Excel)
                 </h3>
                 <p className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5">
-                  Ensure row 1 uses these column headers before processing. Spouse and house number are matched by header name or 11-column order.
+                  Ensure row 1 uses these column headers before processing. Father, mother, spouse, and house number are optional and matched by header name or 11-column order.
                 </p>
               </div>
               <span className="text-[11px] font-mono text-slate-500 dark:text-zinc-400 tabular-nums">
@@ -556,25 +556,25 @@ export default function ImportDataView() {
               {[
                 { header: 'EPIC_NO', label: 'EPIC ID', note: 'Required · 3 letters + 7 digits', highlight: false },
                 { header: 'VOTER_NAME', label: 'Voter Name', note: 'Required · Full elector name', highlight: false },
-                { header: 'FATHER_NAME', label: 'Father Name', note: 'Required · Father full name', highlight: false },
-                { header: 'MOTHER_NAME', label: 'Mother Name', note: 'Mother full name', highlight: false },
+                { header: 'FATHER_NAME', label: 'Father Name', note: 'Optional · Father full name', highlight: false },
+                { header: 'MOTHER_NAME', label: 'Mother Name', note: 'Optional · Mother full name', highlight: false },
                 {
                   header: 'SPOUSE_NAME',
                   label: 'Spouse Name',
-                  note: 'Aliases: SPOUSE, HUSBAND_NAME, WIFE_NAME',
+                  note: 'Optional · Aliases: SPOUSE, HUSBAND_NAME, WIFE_NAME',
                   highlight: true,
                 },
                 { header: 'AGE', label: 'Age', note: 'Required · Minimum 18', highlight: false },
                 { header: 'GENDER', label: 'Gender', note: 'Required · M, F, or O', highlight: false },
-                { header: 'PHONE', label: 'Phone', note: '10-digit mobile (masked in UI)', highlight: false },
+                { header: 'PHONE', label: 'Phone', note: 'Optional · 10-digit mobile (masked in UI)', highlight: false },
                 { header: 'PART_NO', label: 'Part No.', note: 'Required · e.g. 1 or PS-1 (maps to station)', highlight: false },
                 {
                   header: 'HOUSE_NO',
                   label: 'House Number',
-                  note: 'Aliases: HOUSE_NUMBER, H_NO, HOUSE',
+                  note: 'Optional · Aliases: HOUSE_NUMBER, H_NO, HOUSE',
                   highlight: true,
                 },
-                { header: 'ADDRESS', label: 'Address', note: 'Locality / Leikai street address', highlight: false },
+                { header: 'ADDRESS', label: 'Address', note: 'Optional · Locality / Leikai street address', highlight: false },
               ].map((col, idx) => (
                 <div
                   key={col.header}
@@ -634,8 +634,8 @@ export default function ImportDataView() {
             {[
               { src: 'EPIC_NO', dest: 'epicNo (3 letters and 7 digits, unique)' },
               { src: 'VOTER_NAME', dest: 'name (required)' },
-              { src: 'FATHER_NAME', dest: 'fatherName (required)' },
-              { src: 'MOTHER_NAME', dest: 'motherName' },
+              { src: 'FATHER_NAME', dest: 'fatherName (optional)' },
+              { src: 'MOTHER_NAME', dest: 'motherName (optional)' },
               { src: 'SPOUSE_NAME', dest: 'spouseName (optional spouse or close relation)' },
               { src: 'AGE', dest: 'age (minimum 18)' },
               { src: 'GENDER', dest: 'gender (M, F, or O)' },
@@ -779,7 +779,9 @@ export default function ImportDataView() {
                             {r.epicNo}
                           </td>
                           <td className="py-2.5 px-3 font-medium text-slate-900 dark:text-zinc-100">{r.name}</td>
-                          <td className="py-2.5 px-3 text-slate-600 dark:text-zinc-400">{r.fatherName}</td>
+                          <td className="py-2.5 px-3 text-slate-600 dark:text-zinc-400">
+                            {r.fatherName || <span className="text-slate-300 dark:text-zinc-600">-</span>}
+                          </td>
                           <td className="py-2.5 px-3 text-slate-600 dark:text-zinc-400">
                             {r.spouseName || <span className="text-slate-300 dark:text-zinc-600">-</span>}
                           </td>
@@ -847,7 +849,7 @@ export default function ImportDataView() {
                     <span className="font-mono font-semibold text-slate-900 dark:text-zinc-100">{u.epicNo}</span>
                     <span className="font-semibold text-slate-900 dark:text-zinc-100">{u.name}</span>
                     <span className="text-slate-500 dark:text-zinc-400">
-                      Age {Number.isFinite(u.age) ? u.age : 18}, {u.gender} · Father: {u.fatherName}
+                      Age {Number.isFinite(u.age) ? u.age : 18}, {u.gender} · Father: {u.fatherName || '-'}
                       {u.spouseName ? ` · Spouse: ${u.spouseName}` : ''}
                     </span>
                   </div>

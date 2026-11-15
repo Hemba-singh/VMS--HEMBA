@@ -32,8 +32,8 @@ export interface Voter {
   epicNo: string;
   name: string;
   nameLocal?: string;
-  fatherName: string;
-  motherName: string;
+  fatherName?: string;
+  motherName?: string;
   spouseName?: string;
   spouseVoterId?: string;
   relationToHead?: 'Head' | 'Spouse' | 'Son' | 'Daughter' | 'Father' | 'Mother' | 'Brother' | 'Sister' | 'Other';
@@ -261,8 +261,8 @@ export interface UnassignedImportRecord {
   batchId: string;
   epicNo: string;
   name: string;
-  fatherName: string;
-  motherName: string;
+  fatherName?: string;
+  motherName?: string;
   spouseName?: string;
   houseNo?: string;
   age: number;

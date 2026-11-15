@@ -139,8 +139,8 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
     setFormState({
       name: voter.name,
       nameLocal: voter.nameLocal || '',
-      fatherName: voter.fatherName,
-      motherName: voter.motherName,
+      fatherName: voter.fatherName || '',
+      motherName: voter.motherName || '',
       spouseName: voter.spouseName || '',
       age: Number.isFinite(voter.age) ? voter.age : 18,
       gender: voter.gender,
@@ -213,8 +213,8 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
       {
         name: formState.name,
         nameLocal: formState.nameLocal,
-        fatherName: formState.fatherName,
-        motherName: formState.motherName,
+        fatherName: formState.fatherName.trim(),
+        motherName: formState.motherName.trim(),
         spouseName: formState.spouseName || undefined,
         age: nextAge,
         gender: formState.gender,
@@ -740,22 +740,24 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                   <div>
-                    <label className="block text-slate-500 dark:text-zinc-400 mb-1">Father&apos;s name</label>
+                    <label className="block text-slate-500 dark:text-zinc-400 mb-1">Father&apos;s name (optional)</label>
                     <input
                       type="text"
                       disabled={!canEditVoter}
                       value={formState.fatherName}
                       onChange={(e) => handleFieldChange('fatherName', e.target.value)}
+                      placeholder="Optional"
                       className={inputClass}
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-500 dark:text-zinc-400 mb-1">Mother&apos;s name</label>
+                    <label className="block text-slate-500 dark:text-zinc-400 mb-1">Mother&apos;s name (optional)</label>
                     <input
                       type="text"
                       disabled={!canEditVoter}
                       value={formState.motherName}
                       onChange={(e) => handleFieldChange('motherName', e.target.value)}
+                      placeholder="Optional"
                       className={inputClass}
                     />
                   </div>
@@ -988,7 +990,7 @@ export default function VoterDrawer({ filteredVoterIds }: VoterDrawerProps) {
                         )}
                       </div>
                       <p className="text-xs text-slate-500 dark:text-zinc-400 font-mono truncate tabular-nums">
-                        {member.epicNo} · {Number.isFinite(member.age) ? member.age : '-'} · {member.gender} · {member.fatherName}
+                        {member.epicNo} · {Number.isFinite(member.age) ? member.age : '-'} · {member.gender} · Father: {member.fatherName?.trim() || '-'}
                       </p>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">

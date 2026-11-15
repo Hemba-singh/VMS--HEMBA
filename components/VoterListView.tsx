@@ -1651,10 +1651,14 @@ export default function VoterListView() {
                           </td>
                         )}
                         {visibleCols.fatherName && (
-                          <td className="py-2.5 px-2.5 text-slate-600 dark:text-zinc-400 whitespace-nowrap">{voter.fatherName}</td>
+                          <td className="py-2.5 px-2.5 text-slate-600 dark:text-zinc-400 whitespace-nowrap">
+                            {voter.fatherName?.trim() ? voter.fatherName : <span className="text-slate-300 dark:text-zinc-600">-</span>}
+                          </td>
                         )}
                         {visibleCols.motherName && (
-                          <td className="py-2.5 px-2.5 text-slate-600 dark:text-zinc-400 whitespace-nowrap">{voter.motherName}</td>
+                          <td className="py-2.5 px-2.5 text-slate-600 dark:text-zinc-400 whitespace-nowrap">
+                            {voter.motherName?.trim() ? voter.motherName : <span className="text-slate-300 dark:text-zinc-600">-</span>}
+                          </td>
                         )}
                         {visibleCols.spouseName && (
                           <td
@@ -1934,22 +1938,22 @@ export default function VoterListView() {
                 />
               </div>
               <div>
-                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">Father&apos;s name</label>
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">Father&apos;s name (optional)</label>
                 <input
                   type="text"
                   value={newVoterForm.fatherName}
                   onChange={(e) => setNewVoterForm((p) => ({ ...p, fatherName: e.target.value }))}
-                  placeholder="Thokchom Ibohal Singh"
+                  placeholder="Optional"
                   className={inputClass}
                 />
               </div>
               <div>
-                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">Mother&apos;s name</label>
+                <label className="block font-medium text-slate-700 dark:text-zinc-300 mb-1">Mother&apos;s name (optional)</label>
                 <input
                   type="text"
                   value={newVoterForm.motherName}
                   onChange={(e) => setNewVoterForm((p) => ({ ...p, motherName: e.target.value }))}
-                  placeholder="Thokchom Jamuna Devi"
+                  placeholder="Optional"
                   className={inputClass}
                 />
               </div>
@@ -2072,8 +2076,8 @@ export default function VoterListView() {
                   createVoter({
                     epicNo: newVoterForm.epicNo,
                     name: newVoterForm.name.trim(),
-                    fatherName: newVoterForm.fatherName.trim() || 'Not recorded',
-                    motherName: newVoterForm.motherName.trim() || 'Not recorded',
+                    fatherName: newVoterForm.fatherName.trim(),
+                    motherName: newVoterForm.motherName.trim(),
                     spouseName: newVoterForm.spouseName.trim() || undefined,
                     houseNo: houseNoVal,
                     age: Math.max(18, Number.isFinite(Number(newVoterForm.age)) ? Math.round(Number(newVoterForm.age)) : 18),
@@ -2181,8 +2185,8 @@ export default function VoterListView() {
                       v.serialNo,
                       v.epicNo,
                       `"${v.name}"`,
-                      `"${v.fatherName}"`,
-                      `"${v.motherName}"`,
+                      `"${v.fatherName || ''}"`,
+                      `"${v.motherName || ''}"`,
                       v.age,
                       v.gender,
                       v.status,

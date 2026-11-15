@@ -1967,8 +1967,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       createVoter({
         epicNo: rec.epicNo,
         name: rec.name,
-        fatherName: rec.fatherName,
-        motherName: rec.motherName,
+        fatherName: rec.fatherName?.trim() || '',
+        motherName: rec.motherName?.trim() || '',
         spouseName: rec.spouseName || undefined,
         houseNo: rec.houseNo || undefined,
         age: rec.age,
