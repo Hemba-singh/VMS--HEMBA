@@ -41,7 +41,7 @@ service cloud.firestore {
         'epicNo', 'name', 'nameLocal', 'fatherName', 'motherName', 'spouseName',
         'age', 'gender', 'phone', 'familyId', 'partNo', 'serialNo',
         'villageId', 'villagePartId', 'pollingStationId', 'addressId', 'houseNo',
-        'status', 'category', 'colorState', 'issueType', 'issueResolutionNote', 'tags', 'assignedWorkerId',
+        'status', 'category', 'colorState', 'issueType', 'issueResolutionNote', 'tags', 'assignedWorkerId', 'importBatchId',
         'isDeleted', 'deleteReason', 'createdBy', 'createdAt', 'updatedAt'
       ]) &&
       data.epicNo is string && data.epicNo.size() == 10 && data.epicNo.matches('^[A-Z]{3}[0-9]{7}$') &&
@@ -68,6 +68,7 @@ service cloud.firestore {
       (!('issueResolutionNote' in data) || (data.issueResolutionNote is string && data.issueResolutionNote.size() <= 500)) &&
       (!('tags' in data) || (data.tags is list && data.tags.size() <= 10 && (data.tags.size() == 0 || (data.tags[0] is string && data.tags[0].size() <= 40)))) &&
       (!('assignedWorkerId' in data) || (data.assignedWorkerId is string && data.assignedWorkerId.size() <= 64)) &&
+      (!('importBatchId' in data) || (data.importBatchId is string && data.importBatchId.size() <= 64)) &&
       data.isDeleted is bool &&
       (!('deleteReason' in data) || (data.deleteReason is string && data.deleteReason.size() <= 300)) &&
       data.createdBy is string && data.createdBy.size() <= 128 &&
@@ -260,8 +261,7 @@ service cloud.firestore {
         incoming().updatedAt == request.time &&
         (isAdmin() || exists(/databases/$(database)/documents/pollingStations/$(incoming().pollingStationId)));
       allow update: if isSignedIn() && isValidId(voterId) && isValidVoter(incoming()) &&
-        incoming().createdBy == existing().createdBy &&
-        incoming().createdAt == existing().createdAt &&
+        ((incoming().createdBy == existing().createdBy && incoming().createdAt == existing().createdAt) || isAdmin()) &&
         incoming().updatedAt == request.time &&
         (existing().status != 'Removed' || isAdmin()) && (
           isAdmin() ||
@@ -281,8 +281,7 @@ service cloud.firestore {
         incoming().updatedAt == request.time &&
         isAdmin();
       allow update: if isSignedIn() && isValidId(familyId) && isValidFamily(incoming()) &&
-        incoming().createdBy == existing().createdBy &&
-        incoming().createdAt == existing().createdAt &&
+        ((incoming().createdBy == existing().createdBy && incoming().createdAt == existing().createdAt) || isAdmin()) &&
         incoming().updatedAt == request.time && (
           isAdmin() ||
           (existing().createdBy == request.auth.uid &&
@@ -301,8 +300,7 @@ service cloud.firestore {
         incoming().updatedAt == request.time &&
         isAdmin();
       allow update: if isSignedIn() && isValidId(villageId) && isValidVillage(incoming()) &&
-        incoming().createdBy == existing().createdBy &&
-        incoming().createdAt == existing().createdAt &&
+        ((incoming().createdBy == existing().createdBy && incoming().createdAt == existing().createdAt) || isAdmin()) &&
         incoming().updatedAt == request.time &&
         isAdmin();
       allow delete: if isSignedIn() && isValidId(villageId) && isAdmin();
@@ -318,8 +316,7 @@ service cloud.firestore {
         incoming().updatedAt == request.time &&
         isAdmin();
       allow update: if isSignedIn() && isValidId(villagePartId) && isValidVillagePart(incoming()) &&
-        incoming().createdBy == existing().createdBy &&
-        incoming().createdAt == existing().createdAt &&
+        ((incoming().createdBy == existing().createdBy && incoming().createdAt == existing().createdAt) || isAdmin()) &&
         incoming().updatedAt == request.time &&
         isAdmin();
       allow delete: if isSignedIn() && isValidId(villagePartId) && isAdmin();
@@ -335,8 +332,7 @@ service cloud.firestore {
         incoming().updatedAt == request.time &&
         isAdmin();
       allow update: if isSignedIn() && isValidId(pollingStationId) && isValidPollingStation(incoming()) &&
-        incoming().createdBy == existing().createdBy &&
-        incoming().createdAt == existing().createdAt &&
+        ((incoming().createdBy == existing().createdBy && incoming().createdAt == existing().createdAt) || isAdmin()) &&
         incoming().updatedAt == request.time &&
         isAdmin();
       allow delete: if isSignedIn() && isValidId(pollingStationId) && isAdmin();
@@ -416,12 +412,9 @@ service cloud.firestore {
         incoming().updatedAt == request.time &&
         isAdmin();
       allow update: if isSignedIn() && isValidId(batchId) && isValidImportBatch(incoming()) &&
-        incoming().createdBy == existing().createdBy &&
-        incoming().createdAt == existing().createdAt &&
+        ((incoming().createdBy == existing().createdBy && incoming().createdAt == existing().createdAt) || isAdmin()) &&
         incoming().updatedAt == request.time &&
-        (existing().status != 'Rolled Back' || isAdmin()) &&
-        isAdmin() &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+        isAdmin();
       allow delete: if isSignedIn() && isValidId(batchId) && isAdmin();
     }
 

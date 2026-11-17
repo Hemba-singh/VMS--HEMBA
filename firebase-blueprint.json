@@ -29,6 +29,7 @@
         "issueResolutionNote": { "type": "string", "maxLength": 500 },
         "tags": { "type": "array" },
         "assignedWorkerId": { "type": "string", "maxLength": 64 },
+        "importBatchId": { "type": "string", "maxLength": 64 },
         "isDeleted": { "type": "boolean" },
         "deleteReason": { "type": "string", "maxLength": 300 },
         "createdBy": { "type": "string", "maxLength": 128 },

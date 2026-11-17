@@ -18,13 +18,18 @@ export default function SettingsView() {
     pollingStations,
     availableTags,
     issueTypes,
+    voters,
+    families,
+    importBatches,
     allVotersIncludingDeleted,
     revealFullPhone,
     setRevealFullPhone,
     currentUser,
+    firebaseUser,
     isConnectedToFirestore,
     isSyncingFirestore,
     syncSeedDataToFirestore,
+    loginWithGoogle,
     lockSession,
     addCustomTag,
     restoreVoter,
@@ -121,18 +126,45 @@ export default function SettingsView() {
             <div className="flex items-center gap-2">
               <Database className="h-4 w-4 text-blue-600 dark:text-blue-400" />
               <h2 className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
-                Authentication and database sync
+                Database persistence and cloud sync
               </h2>
             </div>
             <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">
               <CheckCircle2 className="h-3.5 w-3.5" />
-              <span>{isConnectedToFirestore ? 'Firestore connected' : 'Local storage active'}</span>
+              <span>
+                {firebaseUser
+                  ? 'Cloud Firestore + Local DB active'
+                  : isConnectedToFirestore
+                  ? 'Persistent DB active (Firestore ready)'
+                  : 'Persistent local database active'}
+              </span>
             </span>
           </div>
 
           <p className="text-xs text-slate-600 dark:text-zinc-400 leading-relaxed">
-            Signed in as <span className="font-mono font-medium text-slate-900 dark:text-zinc-100">{currentUser.email}</span> ({currentUser.role}) across 41 polling stations.
+            Signed in as <span className="font-mono font-medium text-slate-900 dark:text-zinc-100">{currentUser.email}</span> ({currentUser.role}). Imported voter lists, households, and batch records are automatically persisted in browser storage (IndexedDB + LocalStorage) so they remain intact when reloading or refreshing the page.
           </p>
+
+          <div className="grid grid-cols-3 gap-2.5 text-xs">
+            <div className="rounded-lg border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/70 p-2.5">
+              <div className="text-[11px] text-slate-500 dark:text-zinc-400">Persisted voters</div>
+              <div className="mt-0.5 text-base font-semibold tabular-nums text-slate-900 dark:text-zinc-100">
+                {voters.length.toLocaleString()}
+              </div>
+            </div>
+            <div className="rounded-lg border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/70 p-2.5">
+              <div className="text-[11px] text-slate-500 dark:text-zinc-400">Households</div>
+              <div className="mt-0.5 text-base font-semibold tabular-nums text-slate-900 dark:text-zinc-100">
+                {families.length.toLocaleString()}
+              </div>
+            </div>
+            <div className="rounded-lg border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/70 p-2.5">
+              <div className="text-[11px] text-slate-500 dark:text-zinc-400">Import batches</div>
+              <div className="mt-0.5 text-base font-semibold tabular-nums text-slate-900 dark:text-zinc-100">
+                {importBatches.length.toLocaleString()}
+              </div>
+            </div>
+          </div>
 
           <div className="flex flex-wrap items-center gap-2.5 pt-1">
             <button
@@ -141,8 +173,17 @@ export default function SettingsView() {
               onClick={syncSeedDataToFirestore}
               className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
             >
-              {isSyncingFirestore ? 'Syncing data...' : 'Sync hierarchy to Firestore'}
+              {isSyncingFirestore ? 'Syncing database...' : 'Sync all voters & hierarchy to Firestore'}
             </button>
+            {!firebaseUser && (
+              <button
+                type="button"
+                onClick={loginWithGoogle}
+                className="rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-3.5 py-2 text-xs font-medium text-slate-700 dark:text-zinc-200 hover:bg-slate-50 dark:hover:bg-zinc-800"
+              >
+                Link Google account for cloud sync
+              </button>
+            )}
             <button
               type="button"
               onClick={lockSession}

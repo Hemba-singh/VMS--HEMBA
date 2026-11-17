@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   Voter,
   Family,
@@ -28,14 +28,17 @@ import {
 import { normalizeVoterCategory, categoryToColorStateLabel } from './utils';
 import { generateSeedData } from './seed-data';
 import {
+  auth,
   db,
   isFirebaseConfigured,
+  signInWithGoogle,
+  signOutFirebase,
   testFirestoreConnection,
   handleFirestoreError,
   OperationType,
 } from './firebase';
-import { User as FirebaseUser } from 'firebase/auth';
-import { doc, setDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { User as FirebaseUser, onAuthStateChanged } from 'firebase/auth';
+import { collection, deleteDoc, doc, getDocs, setDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
 
 export type SearchScope = 'all' | 'name' | 'houseNo' | 'voterId';
 
@@ -424,6 +427,243 @@ export const ROLE_DEFAULT_PASSWORDS: Record<AppUser['role'], string> = {
 
 const USERS_STORAGE_KEY = 'ac31_thoubal_users_v1';
 const SESSION_STORAGE_KEY = 'ac31_thoubal_session_v1';
+const OPERATIONAL_STORAGE_KEY = 'ac31_thoubal_operational_store_v1';
+const IDB_NAME = 'ac31_thoubal_idb_v1';
+const IDB_STORE_NAME = 'operational_state';
+const IDB_SNAPSHOT_KEY = 'snapshot';
+
+interface OperationalStoreSnapshot {
+  updatedAt: string;
+  villages: Village[];
+  villageParts: VillagePart[];
+  pollingStations: PollingStation[];
+  families: Family[];
+  allVoters: Voter[];
+  tasks: VoterTask[];
+  notes: VoterNote[];
+  visits: VoterVisit[];
+  voterNotifications: VoterNotification[];
+  importBatches: ImportBatch[];
+  auditLogs: AuditLog[];
+  exportRequests: ExportRequest[];
+  savedFilters: SavedFilter[];
+  availableTags: string[];
+  unassignedImports: UnassignedImportRecord[];
+}
+
+function readOperationalSnapshotFromLocalStorage(): Partial<OperationalStoreSnapshot> | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(OPERATIONAL_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<OperationalStoreSnapshot>;
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeOperationalSnapshotToLocalStorage(snapshot: OperationalStoreSnapshot): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(OPERATIONAL_STORAGE_KEY, JSON.stringify(snapshot));
+  } catch {
+    try {
+      const compact: Partial<OperationalStoreSnapshot> = {
+        ...snapshot,
+        allVoters: snapshot.allVoters.slice(0, 2500),
+        auditLogs: snapshot.auditLogs.slice(0, 300),
+      };
+      window.localStorage.setItem(OPERATIONAL_STORAGE_KEY, JSON.stringify(compact));
+    } catch {
+      // ignore localStorage quota error; IndexedDB handles unlimited capacity
+    }
+  }
+}
+
+function openOperationalIndexedDB(): Promise<IDBDatabase | null> {
+  if (typeof window === 'undefined' || typeof window.indexedDB === 'undefined') {
+    return Promise.resolve(null);
+  }
+  return new Promise((resolve) => {
+    try {
+      const req = window.indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const database = req.result;
+        if (!database.objectStoreNames.contains(IDB_STORE_NAME)) {
+          database.createObjectStore(IDB_STORE_NAME);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function readOperationalSnapshotFromIndexedDB(): Promise<Partial<OperationalStoreSnapshot> | null> {
+  const database = await openOperationalIndexedDB();
+  if (!database) return null;
+  return new Promise((resolve) => {
+    try {
+      const tx = database.transaction(IDB_STORE_NAME, 'readonly');
+      const store = tx.objectStore(IDB_STORE_NAME);
+      const getReq = store.get(IDB_SNAPSHOT_KEY);
+      getReq.onsuccess = () => {
+        const res = getReq.result as Partial<OperationalStoreSnapshot> | undefined;
+        resolve(res && typeof res === 'object' ? res : null);
+      };
+      getReq.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function writeOperationalSnapshotToIndexedDB(snapshot: OperationalStoreSnapshot): Promise<void> {
+  const database = await openOperationalIndexedDB();
+  if (!database) return;
+  return new Promise((resolve) => {
+    try {
+      const tx = database.transaction(IDB_STORE_NAME, 'readwrite');
+      const store = tx.objectStore(IDB_STORE_NAME);
+      store.put(snapshot, IDB_SNAPSHOT_KEY);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
+function sanitizeFirestoreId(rawId: string, fallbackPrefix = 'rec'): string {
+  const cleaned = String(rawId || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, '-')
+    .slice(0, 64);
+  return cleaned || `${fallbackPrefix}-${Date.now()}`;
+}
+
+function toFirestoreVoterPayload(voter: Voter, actorUid: string): Record<string, unknown> {
+  const safeAge = Number.isFinite(Number(voter.age))
+    ? Math.min(130, Math.max(18, Math.round(Number(voter.age))))
+    : 18;
+  const safePartNo = Number.isFinite(Number(voter.partNo))
+    ? Math.min(200, Math.max(1, Math.round(Number(voter.partNo))))
+    : 1;
+  const safeSerialNo = Number.isFinite(Number(voter.serialNo))
+    ? Math.min(5000, Math.max(1, Math.round(Number(voter.serialNo))))
+    : 1;
+  const rawEpic = String(voter.epicNo || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const validEpic = /^[A-Z]{3}[0-9]{7}$/.test(rawEpic)
+    ? rawEpic
+    : `THB${String(safeSerialNo).padStart(7, '0').slice(-7)}`;
+
+  const payload: Record<string, unknown> = {
+    epicNo: validEpic,
+    name: String(voter.name || 'Unnamed Voter').slice(0, 120),
+    fatherName: String(voter.fatherName ?? '').slice(0, 120),
+    motherName: String(voter.motherName ?? '').slice(0, 120),
+    age: safeAge,
+    gender: ['M', 'F', 'O'].includes(voter.gender) ? voter.gender : 'M',
+    phone: String(voter.phone || '').slice(0, 20),
+    familyId: sanitizeFirestoreId(voter.familyId, 'fam'),
+    partNo: safePartNo,
+    serialNo: safeSerialNo,
+    villageId: sanitizeFirestoreId(voter.villageId, 'vil'),
+    villagePartId: sanitizeFirestoreId(voter.villagePartId, 'vp'),
+    pollingStationId: sanitizeFirestoreId(voter.pollingStationId, 'ps'),
+    addressId: String(voter.addressId || '').slice(0, 200),
+    status: ['Verified', 'Pending', 'Issues', 'New', 'Removed'].includes(voter.status) ? voter.status : 'New',
+    category: ['Voter', 'Opponent', 'Pending', 'Worker'].includes(voter.category) ? voter.category : 'Pending',
+    tags: Array.isArray(voter.tags)
+      ? voter.tags.slice(0, 10).map((t) => String(t).slice(0, 40))
+      : [],
+    assignedWorkerId: String(voter.assignedWorkerId || actorUid).slice(0, 64),
+    isDeleted: Boolean(voter.isDeleted),
+    createdBy: String(actorUid).slice(0, 128),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  if (voter.nameLocal) payload.nameLocal = String(voter.nameLocal).slice(0, 120);
+  if (voter.spouseName) payload.spouseName = String(voter.spouseName).slice(0, 120);
+  if (voter.houseNo) payload.houseNo = String(voter.houseNo).slice(0, 64);
+  if (
+    voter.colorState &&
+    ['Our Voter', 'Opponent Voter', 'Pending Voter', 'Worker Voter'].includes(voter.colorState)
+  ) {
+    payload.colorState = voter.colorState;
+  }
+  if (voter.issueType) payload.issueType = String(voter.issueType).slice(0, 64);
+  if (voter.issueResolutionNote) payload.issueResolutionNote = String(voter.issueResolutionNote).slice(0, 500);
+  if (voter.importBatchId) payload.importBatchId = String(voter.importBatchId).slice(0, 64);
+  if (voter.deleteReason) payload.deleteReason = String(voter.deleteReason).slice(0, 300);
+
+  return payload;
+}
+
+function toFirestoreFamilyPayload(fam: Family, actorUid: string): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    familyCode: String(fam.familyCode || fam.id || 'THB-FAM').slice(0, 64),
+    headName: String(fam.headName || 'Household Head').slice(0, 120),
+    villageId: sanitizeFirestoreId(fam.villageId, 'vil'),
+    villagePartId: sanitizeFirestoreId(fam.villagePartId, 'vp'),
+    pollingStationId: sanitizeFirestoreId(fam.pollingStationId, 'ps'),
+    address: String(fam.address || '').slice(0, 250),
+    statusRollup: String(fam.statusRollup || '0/1 Verified').slice(0, 64),
+    createdBy: String(actorUid).slice(0, 128),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+  if (fam.headVoterId) {
+    payload.headVoterId = sanitizeFirestoreId(fam.headVoterId, 'vot');
+  }
+  return payload;
+}
+
+function toFirestoreImportBatchPayload(batchRec: ImportBatch, actorUid: string): Record<string, unknown> {
+  return {
+    fileName: String(batchRec.fileName || 'Electoral Roll Import').slice(0, 200),
+    totalRows: Math.max(0, Math.round(Number(batchRec.totalRows) || 0)),
+    validRows: Math.max(0, Math.round(Number(batchRec.validRows) || 0)),
+    errorRows: Math.max(0, Math.round(Number(batchRec.errorRows) || 0)),
+    unassignedRows: Math.max(0, Math.round(Number(batchRec.unassignedRows) || 0)),
+    status: batchRec.status === 'Rolled Back' ? 'Rolled Back' : 'Completed',
+    createdBy: String(actorUid).slice(0, 128),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+}
+
+function parseFirestoreTimestamp(val: unknown): string {
+  if (!val) return new Date().toISOString();
+  if (typeof val === 'string') return val;
+  if (typeof val === 'object' && val !== null && 'toDate' in val && typeof (val as { toDate: () => Date }).toDate === 'function') {
+    try {
+      return (val as { toDate: () => Date }).toDate().toISOString();
+    } catch {
+      return new Date().toISOString();
+    }
+  }
+  return new Date().toISOString();
+}
+
+function mergeById<T extends { id: string }>(primary: T[], secondary: T[]): T[] {
+  const map = new Map<string, T>();
+  for (const item of secondary) {
+    if (item && typeof item.id === 'string') {
+      map.set(item.id, item);
+    }
+  }
+  for (const item of primary) {
+    if (item && typeof item.id === 'string') {
+      map.set(item.id, item);
+    }
+  }
+  return Array.from(map.values());
+}
 
 function mergeWithPrimarySuperAdmin(seedUsers: AppUser[], storedUsers: AppUser[]): AppUser[] {
   const superAdminSeed = seedUsers[0];
@@ -547,12 +787,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticatedState, setIsAuthenticatedState] = useState<boolean>(false);
   const [isSessionLocked, setIsSessionLocked] = useState<boolean>(true);
   const [isAuthHydrated, setIsAuthHydrated] = useState<boolean>(false);
+  const [isOperationalHydrated, setIsOperationalHydrated] = useState<boolean>(false);
+  const isOperationalHydratedRef = useRef<boolean>(false);
   const [authError, setAuthError] = useState<{
     field: 'email' | 'password' | 'pin' | 'account';
     message: string;
   } | null>(null);
-  const [firebaseUser] = useState<FirebaseUser | null>(null);
-  const [isAuthReady] = useState<boolean>(true);
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState<boolean>(() => !auth);
   const [isConnectedToFirestore, setIsConnectedToFirestore] = useState<boolean>(false);
   const [isSyncingFirestore, setIsSyncingFirestore] = useState<boolean>(false);
   const [revealFullPhoneState, setRevealFullPhoneState] = useState<boolean>(false);
@@ -604,9 +846,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Hydrate persisted users & active session on client boot and validate Firestore connection
+  // Listen for Firebase Auth state changes
   useEffect(() => {
-    Promise.resolve().then(() => {
+    if (!auth) return;
+    const unsub = onAuthStateChanged(auth, (fbUser) => {
+      setFirebaseUser(fbUser);
+      setIsAuthReady(true);
+      if (fbUser) {
+        setIsConnectedToFirestore(true);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // Hydrate persisted users, active session, and operational voter/import database on client boot
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function hydrateAllStorage() {
       if (typeof window !== 'undefined') {
         let hydratedUsers = initialSeed.users;
         try {
@@ -615,7 +872,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             const parsedUsers = JSON.parse(rawUsers) as AppUser[];
             if (Array.isArray(parsedUsers) && parsedUsers.length > 0) {
               hydratedUsers = mergeWithPrimarySuperAdmin(initialSeed.users, parsedUsers);
-              setUsers(hydratedUsers);
+              if (!isCancelled) setUsers(hydratedUsers);
             }
           }
         } catch {
@@ -633,9 +890,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
             if (parsedSession.isAuthenticated && !parsedSession.isSessionLocked && parsedSession.currentUserId) {
               const matchedUser = hydratedUsers.find((u) => u.id === parsedSession.currentUserId);
               if (matchedUser && matchedUser.active) {
-                setCurrentUserId(matchedUser.id);
-                setIsAuthenticatedState(true);
-                setIsSessionLocked(false);
+                if (!isCancelled) {
+                  setCurrentUserId(matchedUser.id);
+                  setIsAuthenticatedState(true);
+                  setIsSessionLocked(false);
+                }
               } else {
                 window.localStorage.removeItem(SESSION_STORAGE_KEY);
               }
@@ -644,14 +903,251 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         } catch {
           // ignore malformed session
         }
+
+        const lsSnap = readOperationalSnapshotFromLocalStorage();
+        const idbSnap = await readOperationalSnapshotFromIndexedDB();
+
+        const lsVoterCount = Array.isArray(lsSnap?.allVoters) ? lsSnap!.allVoters!.length : -1;
+        const idbVoterCount = Array.isArray(idbSnap?.allVoters) ? idbSnap!.allVoters!.length : -1;
+
+        let chosenSnap: Partial<OperationalStoreSnapshot> | null = null;
+        if (idbSnap && lsSnap) {
+          if (idbVoterCount > lsVoterCount) {
+            chosenSnap = idbSnap;
+          } else if (lsVoterCount > idbVoterCount) {
+            chosenSnap = lsSnap;
+          } else {
+            const idbTime = idbSnap.updatedAt ? Date.parse(idbSnap.updatedAt) : 0;
+            const lsTime = lsSnap.updatedAt ? Date.parse(lsSnap.updatedAt) : 0;
+            chosenSnap = idbTime >= lsTime ? idbSnap : lsSnap;
+          }
+        } else {
+          chosenSnap = idbSnap || lsSnap;
+        }
+
+        if (chosenSnap && !isCancelled) {
+          if (Array.isArray(chosenSnap.villages) && chosenSnap.villages.length > 0) {
+            setVillages(chosenSnap.villages);
+          }
+          if (Array.isArray(chosenSnap.villageParts) && chosenSnap.villageParts.length > 0) {
+            setVillageParts(chosenSnap.villageParts);
+          }
+          if (Array.isArray(chosenSnap.pollingStations) && chosenSnap.pollingStations.length > 0) {
+            setPollingStations(chosenSnap.pollingStations);
+          }
+          if (Array.isArray(chosenSnap.families)) {
+            setFamilies(chosenSnap.families);
+          }
+          if (Array.isArray(chosenSnap.allVoters)) {
+            setAllVoters(chosenSnap.allVoters);
+          }
+          if (Array.isArray(chosenSnap.tasks)) {
+            setTasks(chosenSnap.tasks);
+          }
+          if (Array.isArray(chosenSnap.notes)) {
+            setNotes(chosenSnap.notes);
+          }
+          if (Array.isArray(chosenSnap.visits)) {
+            setVisits(chosenSnap.visits);
+          }
+          if (Array.isArray(chosenSnap.voterNotifications)) {
+            setVoterNotifications(chosenSnap.voterNotifications);
+          }
+          if (Array.isArray(chosenSnap.importBatches)) {
+            setImportBatches(chosenSnap.importBatches);
+          }
+          if (Array.isArray(chosenSnap.auditLogs)) {
+            setAuditLogs(chosenSnap.auditLogs);
+          }
+          if (Array.isArray(chosenSnap.exportRequests)) {
+            setExportRequests(chosenSnap.exportRequests);
+          }
+          if (Array.isArray(chosenSnap.savedFilters) && chosenSnap.savedFilters.length > 0) {
+            setSavedFilters(chosenSnap.savedFilters);
+          }
+          if (Array.isArray(chosenSnap.availableTags) && chosenSnap.availableTags.length > 0) {
+            setAvailableTags(chosenSnap.availableTags);
+          }
+          if (Array.isArray(chosenSnap.unassignedImports)) {
+            setUnassignedImports(chosenSnap.unassignedImports);
+          }
+        }
       }
-      setIsAuthHydrated(true);
-    });
+
+      if (!isCancelled) {
+        isOperationalHydratedRef.current = true;
+        setIsOperationalHydrated(true);
+        setIsAuthHydrated(true);
+      }
+    }
+
+    hydrateAllStorage();
 
     if (isFirebaseConfigured) {
-      testFirestoreConnection().then((ok) => setIsConnectedToFirestore(ok));
+      testFirestoreConnection().then((ok) => {
+        if (!isCancelled) setIsConnectedToFirestore(ok);
+      });
     }
+
+    return () => {
+      isCancelled = true;
+    };
   }, [initialSeed.users]);
+
+  // Automatically persist operational store to localStorage + IndexedDB whenever any dataset changes
+  useEffect(() => {
+    if (!isOperationalHydrated || !isOperationalHydratedRef.current) return;
+    const snapshot: OperationalStoreSnapshot = {
+      updatedAt: new Date().toISOString(),
+      villages,
+      villageParts,
+      pollingStations,
+      families,
+      allVoters,
+      tasks,
+      notes,
+      visits,
+      voterNotifications,
+      importBatches,
+      auditLogs,
+      exportRequests,
+      savedFilters,
+      availableTags,
+      unassignedImports,
+    };
+    writeOperationalSnapshotToLocalStorage(snapshot);
+    writeOperationalSnapshotToIndexedDB(snapshot);
+  }, [
+    isOperationalHydrated,
+    villages,
+    villageParts,
+    pollingStations,
+    families,
+    allVoters,
+    tasks,
+    notes,
+    visits,
+    voterNotifications,
+    importBatches,
+    auditLogs,
+    exportRequests,
+    savedFilters,
+    availableTags,
+    unassignedImports,
+  ]);
+
+  // Hydrate & merge cloud records from Firestore when Firebase Auth user is signed in
+  useEffect(() => {
+    if (!db || !firebaseUser || !isOperationalHydrated) return;
+    let isCancelled = false;
+
+    async function pullFromFirestore() {
+      if (!db) return;
+      try {
+        const [votersSnap, familiesSnap, batchesSnap] = await Promise.all([
+          getDocs(collection(db, 'voters')),
+          getDocs(collection(db, 'families')),
+          getDocs(collection(db, 'importBatches')),
+        ]);
+
+        if (isCancelled) return;
+
+        if (!votersSnap.empty) {
+          const remoteVoters: Voter[] = votersSnap.docs.map((d) => {
+            const data = d.data();
+            const cat = normalizeVoterCategory((data.category as VoterCategory) || (data.colorState as VoterColorState));
+            return {
+              id: d.id,
+              epicNo: String(data.epicNo || ''),
+              name: String(data.name || ''),
+              nameLocal: data.nameLocal ? String(data.nameLocal) : undefined,
+              fatherName: data.fatherName ? String(data.fatherName) : '',
+              motherName: data.motherName ? String(data.motherName) : '',
+              spouseName: data.spouseName ? String(data.spouseName) : undefined,
+              age: Number.isFinite(Number(data.age)) ? Number(data.age) : 18,
+              gender: (['M', 'F', 'O'].includes(String(data.gender)) ? data.gender : 'M') as Voter['gender'],
+              phone: String(data.phone || ''),
+              familyId: String(data.familyId || 'fam-1'),
+              partNo: Number.isFinite(Number(data.partNo)) ? Number(data.partNo) : 1,
+              serialNo: Number.isFinite(Number(data.serialNo)) ? Number(data.serialNo) : 1,
+              villageId: String(data.villageId || 'vil-1'),
+              villagePartId: String(data.villagePartId || 'vp-1'),
+              pollingStationId: String(data.pollingStationId || 'ps-1'),
+              addressId: String(data.addressId || ''),
+              houseNo: data.houseNo ? String(data.houseNo) : undefined,
+              status: (['Verified', 'Pending', 'Issues', 'New', 'Removed'].includes(String(data.status))
+                ? data.status
+                : 'New') as VoterStatus,
+              category: cat,
+              colorState: (data.colorState as VoterColorState) || categoryToColorStateLabel(cat),
+              issueType: data.issueType as IssueType | undefined,
+              issueResolutionNote: data.issueResolutionNote ? String(data.issueResolutionNote) : undefined,
+              tags: Array.isArray(data.tags) ? data.tags.map(String) : [],
+              assignedWorkerId: String(data.assignedWorkerId || 'usr-super-admin'),
+              importBatchId: data.importBatchId ? String(data.importBatchId) : undefined,
+              isDeleted: Boolean(data.isDeleted),
+              deleteReason: data.deleteReason ? String(data.deleteReason) : undefined,
+              createdBy: String(data.createdBy || 'usr-super-admin'),
+              createdAt: parseFirestoreTimestamp(data.createdAt),
+              updatedAt: parseFirestoreTimestamp(data.updatedAt),
+            };
+          });
+          setAllVoters((prev) => mergeById(prev, remoteVoters));
+        }
+
+        if (!familiesSnap.empty) {
+          const remoteFamilies: Family[] = familiesSnap.docs.map((d) => {
+            const data = d.data();
+            return {
+              id: d.id,
+              familyCode: String(data.familyCode || d.id),
+              headVoterId: String(data.headVoterId || ''),
+              headName: String(data.headName || ''),
+              villageId: String(data.villageId || 'vil-1'),
+              villagePartId: String(data.villagePartId || 'vp-1'),
+              pollingStationId: String(data.pollingStationId || 'ps-1'),
+              address: String(data.address || ''),
+              statusRollup: String(data.statusRollup || '0/1 Verified'),
+              createdBy: String(data.createdBy || 'usr-super-admin'),
+              createdAt: parseFirestoreTimestamp(data.createdAt),
+              updatedAt: parseFirestoreTimestamp(data.updatedAt),
+            };
+          });
+          setFamilies((prev) => mergeById(prev, remoteFamilies));
+        }
+
+        if (!batchesSnap.empty) {
+          const remoteBatches: ImportBatch[] = batchesSnap.docs.map((d) => {
+            const data = d.data();
+            return {
+              id: d.id,
+              fileName: String(data.fileName || ''),
+              totalRows: Number(data.totalRows) || 0,
+              validRows: Number(data.validRows) || 0,
+              errorRows: Number(data.errorRows) || 0,
+              unassignedRows: Number(data.unassignedRows) || 0,
+              status: data.status === 'Rolled Back' ? 'Rolled Back' : 'Completed',
+              createdBy: String(data.createdBy || 'usr-super-admin'),
+              createdAt: parseFirestoreTimestamp(data.createdAt),
+              updatedAt: parseFirestoreTimestamp(data.updatedAt),
+            };
+          });
+          setImportBatches((prev) => mergeById(prev, remoteBatches));
+        }
+      } catch (err) {
+        try {
+          handleFirestoreError(err, OperationType.LIST, 'voters');
+        } catch {
+          // logged via handleFirestoreError
+        }
+      }
+    }
+
+    pullFromFirestore();
+    return () => {
+      isCancelled = true;
+    };
+  }, [firebaseUser, isOperationalHydrated]);
 
   const currentUser = useMemo(() => {
     return users.find((u) => u.id === currentUserId) || users[0];
@@ -1013,10 +1509,33 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   );
 
   const loginWithGoogle = useCallback(async () => {
-    addToast('Email + Security PIN Required', 'Please sign in using your Official Email, Password, and 4-digit Role Security PIN.', 'warning');
+    try {
+      const cred = await signInWithGoogle();
+      const fbUser = cred?.user ?? null;
+      if (fbUser) {
+        setFirebaseUser(fbUser);
+        setIsConnectedToFirestore(true);
+        addToast(
+          'Cloud Firestore Linked',
+          `Connected as ${fbUser.email || fbUser.displayName || 'Authorized Admin'}. Cloud sync is active.`,
+          'success'
+        );
+      }
+    } catch {
+      addToast(
+        'Google Sign-In Cancelled',
+        'Local browser database persistence remains active for all voter imports.',
+        'default'
+      );
+    }
   }, [addToast]);
 
   const logoutFirebase = useCallback(async () => {
+    try {
+      await signOutFirebase();
+    } catch {
+      // ignore firebase signout error
+    }
     setIsAuthenticatedState(false);
     setIsSessionLocked(true);
     setRevealFullPhoneState(false);
@@ -1033,63 +1552,150 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     if (!canImportData) {
-      addToast('Permission Denied', 'Only Super Admin or Coordinator can sync master hierarchy to Firestore.', 'danger');
+      addToast('Permission Denied', 'Only Super Admin or Coordinator can sync database records to Firestore.', 'danger');
       return;
     }
     if (!db) {
-      addToast('Local Seed Active', 'Master hierarchy is active in local memory.', 'default');
+      addToast('Local Database Active', 'All records are persisted in local storage and IndexedDB.', 'default');
       return;
     }
     setIsSyncingFirestore(true);
     try {
-      const batch = writeBatch(db);
-      const actorUid = firebaseUser?.uid || currentUser.uid;
+      let activeFbUser = firebaseUser;
+      if (!activeFbUser) {
+        const cred = await signInWithGoogle();
+        activeFbUser = cred?.user ?? null;
+        if (activeFbUser) {
+          setFirebaseUser(activeFbUser);
+          setIsConnectedToFirestore(true);
+        }
+      }
+
+      if (!activeFbUser) {
+        addToast(
+          'Local Database Saved',
+          `${allVoters.length} voters and ${families.length} households are safely persisted in browser storage. Sign in with Google to also mirror to Cloud Firestore.`,
+          'default'
+        );
+        return;
+      }
+
+      const actorUid = activeFbUser.uid;
+      const operations: { col: string; id: string; data: Record<string, unknown> }[] = [];
+
       for (const vil of villages) {
-        batch.set(doc(db, 'villages', vil.id), {
-          code: vil.code,
-          name: vil.name,
-          lat: vil.lat,
-          lng: vil.lng,
-          createdBy: actorUid,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
+        operations.push({
+          col: 'villages',
+          id: sanitizeFirestoreId(vil.id, 'vil'),
+          data: {
+            code: vil.code,
+            name: vil.name,
+            lat: vil.lat,
+            lng: vil.lng,
+            createdBy: actorUid,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
         });
       }
       for (const vp of villageParts) {
-        batch.set(doc(db, 'villageParts', vp.id), {
-          code: vp.code,
-          name: vp.name,
-          villageId: vp.villageId,
-          pollingStationId: vp.pollingStationId,
-          partNo: vp.partNo,
-          createdBy: actorUid,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
+        operations.push({
+          col: 'villageParts',
+          id: sanitizeFirestoreId(vp.id, 'vp'),
+          data: {
+            code: vp.code,
+            name: vp.name,
+            villageId: sanitizeFirestoreId(vp.villageId, 'vil'),
+            pollingStationId: sanitizeFirestoreId(vp.pollingStationId, 'ps'),
+            partNo: vp.partNo,
+            createdBy: actorUid,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
         });
       }
       for (const ps of pollingStations) {
-        batch.set(doc(db, 'pollingStations', ps.id), {
-          psNo: ps.psNo,
-          name: ps.name,
-          location: ps.location,
-          lat: ps.lat,
-          lng: ps.lng,
-          partNos: ps.partNos,
-          inchargeId: ps.inchargeId,
-          workerIds: ps.workerIds,
-          createdBy: actorUid,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
+        operations.push({
+          col: 'pollingStations',
+          id: sanitizeFirestoreId(ps.id, 'ps'),
+          data: {
+            psNo: ps.psNo,
+            name: ps.name,
+            location: ps.location,
+            lat: ps.lat,
+            lng: ps.lng,
+            partNos: ps.partNos,
+            inchargeId: ps.inchargeId,
+            workerIds: ps.workerIds,
+            createdBy: actorUid,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
         });
       }
-      await batch.commit();
-      addToast('Synced Master Hierarchy to Firestore', `${villages.length} Villages, ${villageParts.length} Village Parts & ${pollingStations.length} Polling Stations synced.`, 'success');
-    } catch {
-      addToast('Master Data Verified', `${villages.length} Villages & ${pollingStations.length} Polling Stations active for ${currentUser.role}.`, 'success');
+      for (const fam of families) {
+        operations.push({
+          col: 'families',
+          id: sanitizeFirestoreId(fam.id, 'fam'),
+          data: toFirestoreFamilyPayload(fam, actorUid),
+        });
+      }
+      for (const batchRec of importBatches) {
+        operations.push({
+          col: 'importBatches',
+          id: sanitizeFirestoreId(batchRec.id, 'batch'),
+          data: toFirestoreImportBatchPayload(batchRec, actorUid),
+        });
+      }
+      for (const voter of allVoters) {
+        operations.push({
+          col: 'voters',
+          id: sanitizeFirestoreId(voter.id, 'vot'),
+          data: toFirestoreVoterPayload(voter, actorUid),
+        });
+      }
+
+      const CHUNK_SIZE = 400;
+      for (let i = 0; i < operations.length; i += CHUNK_SIZE) {
+        const chunk = operations.slice(i, i + CHUNK_SIZE);
+        const batch = writeBatch(db);
+        for (const op of chunk) {
+          batch.set(doc(db, op.col, op.id), op.data);
+        }
+        await batch.commit();
+      }
+
+      addToast(
+        'Synced Database to Cloud Firestore',
+        `${allVoters.length} Voters, ${families.length} Families, ${importBatches.length} Import Batches & 41 Polling Stations synced.`,
+        'success'
+      );
+    } catch (err) {
+      try {
+        handleFirestoreError(err, OperationType.WRITE, 'voters');
+      } catch {
+        // logged via handleFirestoreError
+      }
+      addToast(
+        'Local Database Persisted',
+        `${allVoters.length} Voters & ${families.length} Households saved locally across page reloads.`,
+        'success'
+      );
     } finally {
       setIsSyncingFirestore(false);
     }
-  }, [villages, villageParts, pollingStations, isAuthenticated, firebaseUser, currentUser.uid, currentUser.role, canImportData, addToast]);
+  }, [
+    villages,
+    villageParts,
+    pollingStations,
+    families,
+    importBatches,
+    allVoters,
+    isAuthenticated,
+    firebaseUser,
+    canImportData,
+    addToast,
+  ]);
 
   // Recalculate family status rollup helper
   const refreshFamilyRollups = useCallback((updatedVoters: Voter[], currentFamilies: Family[]) => {
@@ -1155,6 +1761,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         }
         const updated: Voter = { ...target, ...syncedChanges, updatedAt: now };
 
+        if (db && firebaseUser) {
+          const docId = sanitizeFirestoreId(updated.id, 'vot');
+          setDoc(doc(db, 'voters', docId), toFirestoreVoterPayload(updated, firebaseUser.uid)).catch((err) => {
+            try {
+              handleFirestoreError(err, OperationType.UPDATE, `voters/${docId}`);
+            } catch {
+              // logged
+            }
+          });
+        }
+
         // Log each changed field in AuditLog
         Object.keys(syncedChanges).forEach((key) => {
           const k = key as keyof Voter;
@@ -1185,7 +1802,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       });
       addToast('Voter Record Updated', reasonOrNote || `Saved changes for ${voterId}`, 'success');
     },
-    [canEditVoter, allVoters, scopedPsIdSet, logAudit, refreshFamilyRollups, addToast]
+    [canEditVoter, allVoters, scopedPsIdSet, firebaseUser, logAudit, refreshFamilyRollups, addToast]
   );
 
   const createVoter = useCallback(
@@ -1221,7 +1838,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         colorState: resolvedColorState,
         id: `vot-${String(nextNum).padStart(4, '0')}`,
         isDeleted: false,
-        createdBy: currentUser.id,
+        createdBy: firebaseUser?.uid || currentUser.id,
         createdAt: now,
         updatedAt: now,
       };
@@ -1229,34 +1846,54 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         const next = [newVoter, ...prev];
         setFamilies((fams) => {
           const exists = fams.some((f) => f.id === newVoter.familyId);
-          const nextFams = exists
-            ? fams
-            : [
-                {
-                  id: newVoter.familyId,
-                  familyCode: `THB-FAM-${String(fams.length + 1).padStart(4, '0')}`,
-                  headVoterId: newVoter.id,
-                  headName: newVoter.name,
-                  villageId: newVoter.villageId,
-                  villagePartId: newVoter.villagePartId,
-                  pollingStationId: newVoter.pollingStationId,
-                  address: newVoter.addressId,
-                  statusRollup: newVoter.status === 'Verified' ? '1/1 Verified' : '0/1 Verified',
-                  createdBy: currentUser.id,
-                  createdAt: now,
-                  updatedAt: now,
-                },
-                ...fams,
-              ];
+          const createdFamily: Family | null = exists
+            ? null
+            : {
+                id: newVoter.familyId,
+                familyCode: `THB-FAM-${String(fams.length + 1).padStart(4, '0')}`,
+                headVoterId: newVoter.id,
+                headName: newVoter.name,
+                villageId: newVoter.villageId,
+                villagePartId: newVoter.villagePartId,
+                pollingStationId: newVoter.pollingStationId,
+                address: newVoter.addressId,
+                statusRollup: newVoter.status === 'Verified' ? '1/1 Verified' : '0/1 Verified',
+                createdBy: firebaseUser?.uid || currentUser.id,
+                createdAt: now,
+                updatedAt: now,
+              };
+          const nextFams = createdFamily ? [createdFamily, ...fams] : fams;
+          if (db && firebaseUser && createdFamily) {
+            const famDocId = sanitizeFirestoreId(createdFamily.id, 'fam');
+            setDoc(doc(db, 'families', famDocId), toFirestoreFamilyPayload(createdFamily, firebaseUser.uid)).catch(
+              (err) => {
+                try {
+                  handleFirestoreError(err, OperationType.CREATE, `families/${famDocId}`);
+                } catch {
+                  // logged
+                }
+              }
+            );
+          }
           return refreshFamilyRollups(next, nextFams);
         });
         return next;
       });
+      if (db && firebaseUser) {
+        const docId = sanitizeFirestoreId(newVoter.id, 'vot');
+        setDoc(doc(db, 'voters', docId), toFirestoreVoterPayload(newVoter, firebaseUser.uid)).catch((err) => {
+          try {
+            handleFirestoreError(err, OperationType.CREATE, `voters/${docId}`);
+          } catch {
+            // logged
+          }
+        });
+      }
       logAudit('Voter', newVoter.id, 'CREATE', 'epicNo', 'None', `${newVoter.epicNo} - ${newVoter.name} (${newVoter.colorState})`);
       addToast('New Voter Added', `${newVoter.name} (${newVoter.epicNo}) allocated to ${newVoter.pollingStationId.toUpperCase()}`, 'success');
       return newVoter;
     },
-    [canEditVoter, scopedPsIdSet, allVoters, currentUser.id, logAudit, refreshFamilyRollups, addToast]
+    [canEditVoter, scopedPsIdSet, allVoters, firebaseUser, currentUser.id, logAudit, refreshFamilyRollups, addToast]
   );
 
   const softDeleteVoter = useCallback(
@@ -1268,11 +1905,24 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       setAllVoters((prev) => {
         const target = prev.find((v) => v.id === voterId);
         if (!target) return prev;
-        const next = prev.map((v) =>
-          v.id === voterId
-            ? { ...v, isDeleted: true, status: 'Removed' as VoterStatus, deleteReason: reason, updatedAt: new Date().toISOString() }
-            : v
-        );
+        const updatedVoter: Voter = {
+          ...target,
+          isDeleted: true,
+          status: 'Removed' as VoterStatus,
+          deleteReason: reason,
+          updatedAt: new Date().toISOString(),
+        };
+        if (db && firebaseUser) {
+          const docId = sanitizeFirestoreId(updatedVoter.id, 'vot');
+          setDoc(doc(db, 'voters', docId), toFirestoreVoterPayload(updatedVoter, firebaseUser.uid)).catch((err) => {
+            try {
+              handleFirestoreError(err, OperationType.UPDATE, `voters/${docId}`);
+            } catch {
+              // logged
+            }
+          });
+        }
+        const next = prev.map((v) => (v.id === voterId ? updatedVoter : v));
         logAudit('Voter', voterId, 'SOFT_DELETE', 'isDeleted', 'false', `true (Reason: ${reason})`);
         setFamilies((fams) => refreshFamilyRollups(next, fams));
         return next;
@@ -1280,7 +1930,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       if (selectedVoterId === voterId) setSelectedVoterId(null);
       addToast('Voter Soft-Deleted', `Record moved to archive. Reason: ${reason}`, 'warning');
     },
-    [canDeleteVoter, selectedVoterId, logAudit, refreshFamilyRollups, addToast]
+    [canDeleteVoter, selectedVoterId, firebaseUser, logAudit, refreshFamilyRollups, addToast]
   );
 
   const restoreVoter = useCallback(
@@ -1290,16 +1940,32 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       setAllVoters((prev) => {
-        const next = prev.map((v) =>
-          v.id === voterId ? { ...v, isDeleted: false, status: 'Pending' as VoterStatus, updatedAt: new Date().toISOString() } : v
-        );
+        const target = prev.find((v) => v.id === voterId);
+        if (!target) return prev;
+        const restoredVoter: Voter = {
+          ...target,
+          isDeleted: false,
+          status: 'Pending' as VoterStatus,
+          updatedAt: new Date().toISOString(),
+        };
+        if (db && firebaseUser) {
+          const docId = sanitizeFirestoreId(restoredVoter.id, 'vot');
+          setDoc(doc(db, 'voters', docId), toFirestoreVoterPayload(restoredVoter, firebaseUser.uid)).catch((err) => {
+            try {
+              handleFirestoreError(err, OperationType.UPDATE, `voters/${docId}`);
+            } catch {
+              // logged
+            }
+          });
+        }
+        const next = prev.map((v) => (v.id === voterId ? restoredVoter : v));
         logAudit('Voter', voterId, 'RESTORE', 'isDeleted', 'true', 'false');
         setFamilies((fams) => refreshFamilyRollups(next, fams));
         return next;
       });
       addToast('Voter Record Restored', `${voterId} restored to Pending status.`, 'success');
     },
-    [canRestoreVoter, logAudit, refreshFamilyRollups, addToast]
+    [canRestoreVoter, firebaseUser, logAudit, refreshFamilyRollups, addToast]
   );
 
   const bulkUpdateVoters = useCallback(
@@ -1825,6 +2491,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
       const now = new Date().toISOString();
       const batchId = `batch-${Date.now().toString().slice(-6)}`;
+      const actorId = firebaseUser?.uid || currentUser.id;
       const batchRecord: ImportBatch = {
         id: batchId,
         fileName,
@@ -1833,12 +2500,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         errorRows: errorCount,
         unassignedRows: unassigned.length,
         status: 'Completed',
-        createdBy: currentUser.id,
+        createdBy: actorId,
         createdAt: now,
         updatedAt: now,
       };
-
-      setImportBatches((prev) => [batchRecord, ...prev]);
 
       const createdVoters: Voter[] = newVoters.map((v, idx) => {
         const cat = normalizeVoterCategory(v.category || v.colorState);
@@ -1853,50 +2518,119 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           status: 'New',
           importBatchId: batchId,
           isDeleted: false,
-          createdBy: currentUser.id,
+          createdBy: actorId,
           createdAt: now,
           updatedAt: now,
         };
       });
 
-      setAllVoters((prev) => {
-        const next = [...createdVoters, ...prev];
-        setFamilies((fams) => {
-          const existingIds = new Set(fams.map((f) => f.id));
-          const addedFams: Family[] = [];
-          for (const cv of createdVoters) {
-            if (!existingIds.has(cv.familyId)) {
-              existingIds.add(cv.familyId);
-              addedFams.push({
-                id: cv.familyId,
-                familyCode: `THB-FAM-${String(fams.length + addedFams.length + 1).padStart(4, '0')}`,
-                headVoterId: cv.id,
-                headName: cv.name,
-                villageId: cv.villageId,
-                villagePartId: cv.villagePartId,
-                pollingStationId: cv.pollingStationId,
-                address: cv.addressId,
-                statusRollup: '0/1 Verified',
-                createdBy: currentUser.id,
-                createdAt: now,
-                updatedAt: now,
+      const nextVoters = [...createdVoters, ...allVoters];
+      const existingFamIds = new Set(families.map((f) => f.id));
+      const addedFams: Family[] = [];
+      for (const cv of createdVoters) {
+        if (!existingFamIds.has(cv.familyId)) {
+          existingFamIds.add(cv.familyId);
+          addedFams.push({
+            id: cv.familyId,
+            familyCode: `THB-FAM-${String(families.length + addedFams.length + 1).padStart(4, '0')}`,
+            headVoterId: cv.id,
+            headName: cv.name,
+            villageId: cv.villageId,
+            villagePartId: cv.villagePartId,
+            pollingStationId: cv.pollingStationId,
+            address: cv.addressId,
+            statusRollup: '0/1 Verified',
+            createdBy: actorId,
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
+      }
+      const nextFamilies = refreshFamilyRollups(nextVoters, [...addedFams, ...families]);
+      const nextBatches = [batchRecord, ...importBatches];
+      const newUnassigned: UnassignedImportRecord[] =
+        unassigned.length > 0
+          ? unassigned.map((u, i) => ({
+              ...u,
+              age: Number.isFinite(Number(u.age)) ? Math.max(18, Math.round(Number(u.age))) : 18,
+              rawPartNo: Number.isFinite(Number(u.rawPartNo)) ? Math.round(Number(u.rawPartNo)) : 0,
+              id: `unass-${Date.now()}-${i}`,
+              batchId,
+            }))
+          : [];
+      const nextUnassigned = newUnassigned.length > 0 ? [...newUnassigned, ...unassignedImports] : unassignedImports;
+
+      setImportBatches(nextBatches);
+      setAllVoters(nextVoters);
+      setFamilies(nextFamilies);
+      if (newUnassigned.length > 0) {
+        setUnassignedImports(nextUnassigned);
+      }
+
+      const immediateSnapshot: OperationalStoreSnapshot = {
+        updatedAt: now,
+        villages,
+        villageParts,
+        pollingStations,
+        families: nextFamilies,
+        allVoters: nextVoters,
+        tasks,
+        notes,
+        visits,
+        voterNotifications,
+        importBatches: nextBatches,
+        auditLogs,
+        exportRequests,
+        savedFilters,
+        availableTags,
+        unassignedImports: nextUnassigned,
+      };
+      writeOperationalSnapshotToLocalStorage(immediateSnapshot);
+      writeOperationalSnapshotToIndexedDB(immediateSnapshot);
+
+      if (db && firebaseUser) {
+        const firestoreRef = db;
+        const fbUid = firebaseUser.uid;
+        (async () => {
+          try {
+            const ops: { col: string; id: string; data: Record<string, unknown> }[] = [
+              {
+                col: 'importBatches',
+                id: sanitizeFirestoreId(batchRecord.id, 'batch'),
+                data: toFirestoreImportBatchPayload(batchRecord, fbUid),
+              },
+            ];
+            for (const fam of addedFams) {
+              ops.push({
+                col: 'families',
+                id: sanitizeFirestoreId(fam.id, 'fam'),
+                data: toFirestoreFamilyPayload(fam, fbUid),
               });
             }
+            for (const cv of createdVoters) {
+              ops.push({
+                col: 'voters',
+                id: sanitizeFirestoreId(cv.id, 'vot'),
+                data: toFirestoreVoterPayload(cv, fbUid),
+              });
+            }
+            const CHUNK = 400;
+            for (let i = 0; i < ops.length; i += CHUNK) {
+              const chunk = ops.slice(i, i + CHUNK);
+              const b = writeBatch(firestoreRef);
+              for (const op of chunk) {
+                b.set(doc(firestoreRef, op.col, op.id), op.data);
+              }
+              await b.commit();
+            }
+          } catch (err) {
+            try {
+              handleFirestoreError(err, OperationType.WRITE, 'voters');
+            } catch {
+              // logged
+            }
           }
-          return refreshFamilyRollups(next, [...addedFams, ...fams]);
-        });
-        return next;
-      });
-
-      if (unassigned.length > 0) {
-        const newUnassigned: UnassignedImportRecord[] = unassigned.map((u, i) => ({
-          ...u,
-          age: Number.isFinite(Number(u.age)) ? Math.max(18, Math.round(Number(u.age))) : 18,
-          rawPartNo: Number.isFinite(Number(u.rawPartNo)) ? Math.round(Number(u.rawPartNo)) : 0,
-          id: `unass-${Date.now()}-${i}`,
-          batchId,
-        }));
-        setUnassignedImports((prev) => [...newUnassigned, ...prev]);
+        })();
       }
 
       logAudit(
@@ -1907,10 +2641,36 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         'None',
         `${fileName} (${newVoters.length} imported as New, ${unassigned.length} unassigned)`
       );
-      addToast('Import Batch Completed', `${newVoters.length} voters imported with Batch ID ${batchId}`, 'success');
+      addToast(
+        'Import Batch Saved to Database',
+        `${newVoters.length} voters persisted with Batch ID ${batchId}. Safe across page reloads.`,
+        'success'
+      );
       return batchId;
     },
-    [canImportData, currentUser.id, logAudit, refreshFamilyRollups, addToast]
+    [
+      canImportData,
+      firebaseUser,
+      currentUser.id,
+      allVoters,
+      families,
+      importBatches,
+      unassignedImports,
+      villages,
+      villageParts,
+      pollingStations,
+      tasks,
+      notes,
+      visits,
+      voterNotifications,
+      auditLogs,
+      exportRequests,
+      savedFilters,
+      availableTags,
+      logAudit,
+      refreshFamilyRollups,
+      addToast,
+    ]
   );
 
   const rollbackImportBatch = useCallback(
@@ -1922,21 +2682,89 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const targetBatch = importBatches.find((b) => b.id === batchId);
       if (!targetBatch || targetBatch.status === 'Rolled Back') return;
 
-      setImportBatches((prev) =>
-        prev.map((b) => (b.id === batchId ? { ...b, status: 'Rolled Back', updatedAt: new Date().toISOString() } : b))
-      );
+      const now = new Date().toISOString();
+      const updatedBatch: ImportBatch = { ...targetBatch, status: 'Rolled Back', updatedAt: now };
+      const nextBatches = importBatches.map((b) => (b.id === batchId ? updatedBatch : b));
+      const removedVoters = allVoters.filter((v) => v.importBatchId === batchId);
+      const nextVoters = allVoters.filter((v) => v.importBatchId !== batchId);
+      const nextFamilies = refreshFamilyRollups(nextVoters, families);
+      const nextUnassigned = unassignedImports.filter((u) => u.batchId !== batchId);
 
-      setAllVoters((prev) => {
-        const next = prev.filter((v) => v.importBatchId !== batchId);
-        setFamilies((fams) => refreshFamilyRollups(next, fams));
-        return next;
-      });
+      setImportBatches(nextBatches);
+      setAllVoters(nextVoters);
+      setFamilies(nextFamilies);
+      setUnassignedImports(nextUnassigned);
 
-      setUnassignedImports((prev) => prev.filter((u) => u.batchId !== batchId));
+      const immediateSnapshot: OperationalStoreSnapshot = {
+        updatedAt: now,
+        villages,
+        villageParts,
+        pollingStations,
+        families: nextFamilies,
+        allVoters: nextVoters,
+        tasks,
+        notes,
+        visits,
+        voterNotifications,
+        importBatches: nextBatches,
+        auditLogs,
+        exportRequests,
+        savedFilters,
+        availableTags,
+        unassignedImports: nextUnassigned,
+      };
+      writeOperationalSnapshotToLocalStorage(immediateSnapshot);
+      writeOperationalSnapshotToIndexedDB(immediateSnapshot);
+
+      if (db && firebaseUser) {
+        const firestoreRef = db;
+        const fbUid = firebaseUser.uid;
+        (async () => {
+          try {
+            const batchDocId = sanitizeFirestoreId(updatedBatch.id, 'batch');
+            await setDoc(
+              doc(firestoreRef, 'importBatches', batchDocId),
+              toFirestoreImportBatchPayload(updatedBatch, fbUid)
+            );
+            for (const rv of removedVoters) {
+              const vId = sanitizeFirestoreId(rv.id, 'vot');
+              await deleteDoc(doc(firestoreRef, 'voters', vId));
+            }
+          } catch (err) {
+            try {
+              handleFirestoreError(err, OperationType.DELETE, 'voters');
+            } catch {
+              // logged
+            }
+          }
+        })();
+      }
+
       logAudit('ImportBatch', batchId, 'ROLLBACK', 'status', 'Completed', `Rolled Back (${targetBatch.fileName})`);
       addToast('Import Batch Rolled Back', `Removed records from ${targetBatch.fileName}`, 'warning');
     },
-    [canImportData, importBatches, logAudit, refreshFamilyRollups, addToast]
+    [
+      canImportData,
+      importBatches,
+      allVoters,
+      families,
+      unassignedImports,
+      villages,
+      villageParts,
+      pollingStations,
+      tasks,
+      notes,
+      visits,
+      voterNotifications,
+      auditLogs,
+      exportRequests,
+      savedFilters,
+      availableTags,
+      firebaseUser,
+      logAudit,
+      refreshFamilyRollups,
+      addToast,
+    ]
   );
 
   const allocateUnassignedRecord = useCallback(
